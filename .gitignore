@@ -1,0 +1,21 @@
+# Unity-generated, regenerable — never commit
+UnityProject/Library/
+UnityProject/Temp/
+UnityProject/Obj/
+UnityProject/obj/
+UnityProject/Build/
+UnityProject/Builds/
+UnityProject/Logs/
+UnityProject/UserSettings/
+UnityProject/MemoryCaptures/
+UnityProject/Recordings/
+UnityProject/.vs/
+UnityProject/.vscode/
+
+# IDE project files Unity regenerates on open — not source of truth
+UnityProject/*.csproj
+UnityProject/*.sln
+UnityProject/*.unityproj
+
+# OS cruft
+.DS_Store
