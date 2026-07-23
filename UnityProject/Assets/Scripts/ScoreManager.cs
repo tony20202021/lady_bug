@@ -11,6 +11,8 @@ public class ScoreManager : MonoBehaviour
 
     private int _score;
 
+    public int Score => _score;
+
     private void Awake()
     {
         Instance = this;
@@ -19,11 +21,11 @@ public class ScoreManager : MonoBehaviour
 
     public void AddScore(int delta)
     {
+        // Score is just an accumulating achievement now (its own leaderboard
+        // category) — the win condition is distance travelled, checked
+        // continuously in SpeedController, not score thresholds here.
         _score = Mathf.Max(0, _score + delta);
         UpdateText();
-
-        if (WinSequence.Instance != null)
-            WinSequence.Instance.TryTrigger(_score);
     }
 
     // worldPos: the position of the player who triggered this — the popup

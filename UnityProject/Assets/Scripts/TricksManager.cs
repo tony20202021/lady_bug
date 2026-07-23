@@ -35,6 +35,11 @@ public class TricksManager : MonoBehaviour
         if (popupParent == null || counterAnchor == null)
             return;
 
+        if (SfxManager.Instance != null)
+            SfxManager.Instance.PlayTrick();
+        if (AchievementStats.Instance != null)
+            AchievementStats.Instance.RecordTrick(trickName);
+
         var go = new GameObject("TrickPopup");
         go.transform.SetParent(popupParent, false);
 

@@ -11,6 +11,7 @@ GameObject:
   - component: {fileID: 9157609779341621768}
   - component: {fileID: 2278035780920299224}
   - component: {fileID: 7722792550960052431}
+  - component: {fileID: 7724382188204528784}
   - component: {fileID: 7986419128949759626}
   m_Layer: 0
   m_Name: Dog
@@ -28,7 +29,7 @@ Transform:
   m_GameObject: {fileID: 309420784786924409}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0.5, z: 0}
+  m_LocalPosition: {x: 0, y: 0.75, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -62,6 +63,27 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   value: -1
+--- !u!114 &7724382188204528784
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 309420784786924409}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2a50ac341ff49407d8b1fc54f84c554b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  laneWidth: 4
+  laneCount: 3
+  moveSpeed: 1.5
+  minDelay: 1.5
+  maxDelay: 4
+  idleWiggleAngle: 4
+  idleWiggleSpeed: 3
+  crossingWiggleAngle: 10
+  crossingWiggleSpeed: 12
 --- !u!65 &7986419128949759626
 BoxCollider:
   m_ObjectHideFlags: 0
@@ -81,8 +103,8 @@ BoxCollider:
   m_ProvidesContacts: 0
   m_Enabled: 1
   serializedVersion: 3
-  m_Size: {x: 1, y: 1, z: 0.3}
-  m_Center: {x: 0, y: 0, z: 0}
+  m_Size: {x: 1.5, y: 1, z: 0.3}
+  m_Center: {x: 0, y: -0.25, z: 0}
 --- !u!1 &1619523868957710801
 GameObject:
   m_ObjectHideFlags: 0
@@ -110,8 +132,8 @@ Transform:
   m_GameObject: {fileID: 1619523868957710801}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 0, y: -0.48, z: 0}
-  m_LocalScale: {x: 0.7, y: 0.01, z: 0.35}
+  m_LocalPosition: {x: 0, y: -0.73, z: 0}
+  m_LocalScale: {x: 1.05, y: 0.01, z: 0.525}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 9157609779341621768}
@@ -197,7 +219,7 @@ Transform:
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_LocalScale: {x: 1.5, y: 1.5, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 9157609779341621768}

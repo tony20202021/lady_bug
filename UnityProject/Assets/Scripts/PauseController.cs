@@ -2,21 +2,21 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
-// Holding brake on every active player for a few seconds together is treated
-// as a deliberate "let's stop" gesture — freezes the road and asks to confirm.
+// Yes/No "quit game?" dialog — opened by HelpController when Q is pressed
+// while the F1 help screen is up (braking was removed from every control
+// scheme, so the old "hold brake for 5s" trigger no longer has a key to
+// hang off of; routing it through the help screen keeps a quit path
+// discoverable without adding a dedicated always-on key).
 public class PauseController : MonoBehaviour
 {
     public static PauseController Instance { get; private set; }
 
-    [SerializeField] private float holdDuration = 5f;
     [SerializeField] private GameObject dialogRoot;
     [SerializeField] private Text yesText;
     [SerializeField] private Text noText;
-    [SerializeField] private Text holdWarningText;
 
     private static readonly Color Highlighted = new Color(1f, 0.85f, 0.2f);
 
-    private float _holdTimer;
     private bool _dialogOpen;
     private bool _confirmYes;
 
@@ -27,88 +27,18 @@ public class PauseController : MonoBehaviour
         Instance = this;
         if (dialogRoot != null)
             dialogRoot.SetActive(false);
-        SetHoldWarningVisible(false);
     }
 
     private void Update()
     {
         if (_dialogOpen)
-        {
             HandleDialogInput();
-            return;
-        }
-
-        if (SpeedController.Instance == null || !SpeedController.Instance.IsRunning)
-            return; // start screen — nothing to pause yet
-
-        if (WinSequence.Instance != null && WinSequence.Instance.Triggered)
-        {
-            ResetHold();
-            return; // don't interrupt the victory cinematic
-        }
-
-        if (HelpController.Instance != null && HelpController.Instance.IsOpen)
-        {
-            ResetHold();
-            return; // help overlay is up — don't count braking against it
-        }
-
-        PlayerController[] players = FindObjectsOfType<PlayerController>();
-
-        // The countdown only starts once braking has actually brought the
-        // road down to a stop — braking itself takes a moment to bite.
-        bool eligible = players.Length > 0 && AllBraking(players)
-                      && SpeedController.Instance.IsAtMinSpeed;
-        if (!eligible)
-        {
-            ResetHold();
-            return;
-        }
-
-        _holdTimer += Time.deltaTime;
-        UpdateHoldWarning(players.Length);
-        if (_holdTimer >= holdDuration)
-            OpenDialog();
     }
 
-    private void ResetHold()
-    {
-        if (_holdTimer > 0f)
-            SetHoldWarningVisible(false);
-        _holdTimer = 0f;
-    }
-
-    private void UpdateHoldWarning(int playerCount)
-    {
-        if (holdWarningText == null)
-            return;
-
-        int remaining = Mathf.CeilToInt(holdDuration - _holdTimer);
-        string label = playerCount > 1 ? "Зажат тормоз (у обоих)" : "Зажат тормоз";
-        holdWarningText.text = label + " — до выхода: " + remaining + " сек";
-        SetHoldWarningVisible(true);
-    }
-
-    private void SetHoldWarningVisible(bool visible)
-    {
-        if (holdWarningText != null)
-            holdWarningText.gameObject.SetActive(visible);
-    }
-
-    private static bool AllBraking(PlayerController[] players)
-    {
-        foreach (var p in players)
-            if (!p.IsBraking)
-                return false;
-        return true;
-    }
-
-    private void OpenDialog()
+    public void OpenDialog()
     {
         _dialogOpen = true;
         _confirmYes = false;
-        _holdTimer = 0f;
-        SetHoldWarningVisible(false);
 
         if (SpeedController.Instance != null)
             SpeedController.Instance.SetPaused(true);
@@ -127,7 +57,7 @@ public class PauseController : MonoBehaviour
     {
         bool left = Input.GetKeyDown(KeyCode.LeftArrow) || Input.GetKeyDown(KeyCode.A);
         bool right = Input.GetKeyDown(KeyCode.RightArrow) || Input.GetKeyDown(KeyCode.D);
-        bool accel = Input.GetKeyDown(KeyCode.I) || Input.GetKeyDown(KeyCode.LeftShift);
+        bool confirm = Input.GetKeyDown(KeyCode.Space) || Input.GetKeyDown(KeyCode.Return);
 
         if (left || right)
         {
@@ -135,7 +65,7 @@ public class PauseController : MonoBehaviour
             UpdateDialogVisuals();
         }
 
-        if (accel)
+        if (confirm)
         {
             if (_confirmYes)
                 SceneManager.LoadScene(SceneManager.GetActiveScene().name);

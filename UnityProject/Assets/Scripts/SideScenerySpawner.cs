@@ -4,6 +4,7 @@ public class SideScenerySpawner : MonoBehaviour
 {
     [SerializeField] private GameObject[] prefabs;
     [SerializeField] private float sideOffset = 6f; // clearance from the road edge to the object's near edge
+    [SerializeField] private float maxExtraOffset = 20f; // random extra distance beyond that, so objects don't all line up at the same distance
     [SerializeField] private float spawnZ = 70f;
     [SerializeField] private float minInterval = 1.5f;
     [SerializeField] private float maxInterval = 3f;
@@ -52,7 +53,7 @@ public class SideScenerySpawner : MonoBehaviour
         if (box != null)
             halfWidth = box.size.x / 2f;
 
-        float x = side * (sideOffset + halfWidth);
+        float x = side * (sideOffset + halfWidth + Random.Range(0f, maxExtraOffset));
         Vector3 pos = new Vector3(x, prefab.transform.position.y, spawnZ);
         Instantiate(prefab, pos, prefab.transform.rotation);
     }

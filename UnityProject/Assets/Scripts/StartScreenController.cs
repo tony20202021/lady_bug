@@ -1,13 +1,14 @@
 using UnityEngine;
 using UnityEngine.UI;
 
-// Pre-game menu: pick 1 or 2 players and confirm, using either control
-// scheme (arrows/IJ or WASD/Shift+Ctrl) — nothing is bound yet, so any
-// player's movement/accel keys work interchangeably here.
+// Pre-game menu: pick 1 or 2 players and confirm with Space/Enter — a
+// neutral key, not tied to either player's own scheme, since nothing is
+// bound to a specific player yet at this point.
 public class StartScreenController : MonoBehaviour
 {
     [SerializeField] private GameObject canvasRoot;
-    [SerializeField] private Text carouselText;
+    [SerializeField] private GameObject[] carouselPages;
+    [SerializeField] private GameObject carouselBackground;
 
     [SerializeField] private Image option1Bg;
     [SerializeField] private Image option2Bg;
@@ -33,6 +34,14 @@ public class StartScreenController : MonoBehaviour
     [SerializeField] private GestureInput gestureRight;
     [SerializeField] private GestureInput gestureLeft;
 
+    // Per-player КЛАВИШИ/ЖЕСТЫ gameplay HUD (CreateGesturePanel) — hidden
+    // while this menu is up (they're feedback for actual play, not menu
+    // chrome) and revealed once BeginGame fires.
+    [SerializeField] private GameObject gestureCanvasRight;
+    [SerializeField] private GameObject gestureCanvasLeft;
+
+    [SerializeField] private AudioSource musicSource;
+
     private static readonly Color SelectedColor = new Color(0.2f, 0.75f, 0.25f, 0.9f);
     private static readonly Color UnselectedColor = new Color(0.15f, 0.15f, 0.15f, 0.85f);
     private static readonly Color StartFocusColor = new Color(0.4f, 0.35f, 0.1f, 0.9f);
@@ -46,38 +55,24 @@ public class StartScreenController : MonoBehaviour
     private int _selectedController; // 0 = keyboard, 1 = distance sensors, 2 = simulator
     private int _row;
 
-    private const float CarouselInterval = 10f;
-    private static readonly string[] CarouselPages =
-    {
-        "СУТЬ ИГРЫ\n"
-        + "Ехать вперёд\n"
-        + "Собирать хорошее\n"
-        + "Избегать плохое\n"
-        + "Вдвоём — делать трюки",
-
-        "ЦЕЛЬ\n"
-        + "Набрать 100 очков\n"
-        + "За самое короткое время\n"
-        + "И дополнительно выполняя трюки",
-
-        "УПРАВЛЕНИЕ\n"
-        + "Правый: ← → полоса, ↑ прыжок, ↓ пригнуться, I газ, K тормоз\n"
-        + "Левый: A D полоса, W прыжок, S пригнуться, Shift газ, Ctrl тормоз\n"
-        + "Газ/тормоз суммируются: оба жмут газ — разгон вдвое",
-
-        "ТРЮКИ\n"
-        + "АРКА: один приседает под аркой, другой в этот момент перепрыгивает её вместе с ним\n"
-        + "КОЛЬЦО: игроки одновременно меняются полосами — один в прыжке, другой понизу",
-
-        "ДАТЧИКИ РАССТОЯНИЯ (ИМИТАТОР)\n"
-        + "По датчику на каждую руку, смотрят вниз: обе руки вверх — прыжок, обе вниз — пригнуться\n"
-        + "Одна вверх, другая вниз — полоса в сторону опущенной руки\n"
-        + "Тронуть среднее положение обеих рук разом — газ, по очереди — тормоз\n"
-        + "Имитатор (верх, середина, низ): левый Q,A,Z и W,S,X — правый O,L,. и P,;,/",
-    };
+    // TEMPORARY, for faster debug/test cycling — revert to 10f for real play.
+    private const float CarouselInterval = 2f;
+    // Pure pause before the carousel shows anything at all — first
+    // impression is the game running behind the menu buttons, not a table,
+    // same as before the carousel/winner-tables existed.
+    private const float CarouselStartDelay = 4f;
+    private const int NoCarouselPage = -2; // sentinel distinct from _lastCarouselPage's initial -1
+    private int _lastCarouselPage = -1;
 
     private PlayerController _rightController;
     private int _rightHomeLane;
+
+    // Edge-detect state for the two menu-only gestures that GestureInput
+    // doesn't already expose as a "just happened" signal (LeanLeft/RightDown
+    // and JumpDown already are — DuckHeld and "both hands up" are level
+    // signals there since ducking/jumping mid-run don't need edges).
+    private bool _prevBothUpRight, _prevBothUpLeft;
+    private bool _prevDuckRight, _prevDuckLeft;
 
     private void Awake()
     {
@@ -93,6 +88,26 @@ public class StartScreenController : MonoBehaviour
                 _rightHomeLane = _rightController.HomeLane;
         }
 
+        // The per-player gesture HUD is feedback for actual play, not menu
+        // chrome — hidden while this menu is up (MenuHelpText covers the
+        // freed-up space instead), shown again once BeginGame fires.
+        if (gestureCanvasRight != null)
+            gestureCanvasRight.SetActive(false);
+        if (gestureCanvasLeft != null)
+            gestureCanvasLeft.SetActive(false);
+
+        // Nothing's chosen a controller yet at this point (that's what row 1
+        // picks), so the menu itself listens for whichever gesture source is
+        // actually available — real sensors if connected, the keyboard
+        // simulator otherwise — on both players at once, in addition to the
+        // plain arrow/WASD keys already handled below.
+        bool useRealSensors = GestureSensorSerial.Instance != null && GestureSensorSerial.Instance.IsConnected;
+        EnableGestureForMenu(gestureRight, useRealSensors);
+        EnableGestureForMenu(gestureLeft, useRealSensors);
+
+        if (musicSource != null)
+            musicSource.Play();
+
         UpdateVisuals();
         UpdateCarousel();
     }
@@ -105,7 +120,19 @@ public class StartScreenController : MonoBehaviour
         bool right = Input.GetKeyDown(KeyCode.RightArrow) || Input.GetKeyDown(KeyCode.D);
         bool up = Input.GetKeyDown(KeyCode.UpArrow) || Input.GetKeyDown(KeyCode.W);
         bool down = Input.GetKeyDown(KeyCode.DownArrow) || Input.GetKeyDown(KeyCode.S);
-        bool accel = Input.GetKeyDown(KeyCode.I) || Input.GetKeyDown(KeyCode.LeftShift);
+        bool confirm = Input.GetKeyDown(KeyCode.Space) || Input.GetKeyDown(KeyCode.Return);
+
+        // Gesture nav (works from either player, whichever the keyboard
+        // simulator or real sensors are hooked up to): leaning one hand
+        // moves left/right, both hands up moves the row cursor up, both
+        // hands down (duck) moves it down, and flapping (the same signal
+        // that means "jump" in actual play) confirms — "start and wave"
+        // rather than a dedicated new gesture.
+        left |= IsLeanLeftDown(gestureRight) || IsLeanLeftDown(gestureLeft);
+        right |= IsLeanRightDown(gestureRight) || IsLeanRightDown(gestureLeft);
+        up |= EdgeBothHandsUp(gestureRight, ref _prevBothUpRight) || EdgeBothHandsUp(gestureLeft, ref _prevBothUpLeft);
+        down |= EdgeDuck(gestureRight, ref _prevDuckRight) || EdgeDuck(gestureLeft, ref _prevDuckLeft);
+        confirm |= IsJumpDown(gestureRight) || IsJumpDown(gestureLeft);
 
         if (left || right)
         {
@@ -132,7 +159,7 @@ public class StartScreenController : MonoBehaviour
             UpdateVisuals();
         }
 
-        if (accel && _row == 2)
+        if (confirm && _row == 2)
             BeginGame();
     }
 
@@ -194,26 +221,38 @@ public class StartScreenController : MonoBehaviour
     {
         if (_selectedController == 1)
         {
-            // Real hardware isn't connected yet — the simulator (option 2)
-            // is the only working gesture path for now.
-            if (notImplementedText != null)
+            bool connected = GestureSensorSerial.Instance != null && GestureSensorSerial.Instance.IsConnected;
+            if (!connected)
             {
-                notImplementedText.gameObject.SetActive(true);
-                notImplementedText.text = "Датчики расстояния — пока не реализовано";
+                if (notImplementedText != null)
+                {
+                    notImplementedText.gameObject.SetActive(true);
+                    notImplementedText.text = "Датчики не найдены — проверь подключение платы";
+                }
+                return;
             }
-            return;
         }
+
+        bool gestureActive = _selectedController == 1 || _selectedController == 2;
+        bool useRealSensors = _selectedController == 1;
 
         // playerLeft's active state already reflects the selection (toggled
         // live in UpdateVisuals) — only need to arm its controls if present.
         if (_selectedPlayers == 2)
         {
             SetPlayerControlEnabled(playerLeft, true);
-            SetGestureEnabled(gestureLeft, _selectedController == 2);
+            SetGestureEnabled(gestureLeft, gestureActive, useRealSensors);
         }
 
         SetPlayerControlEnabled(playerRight, true);
-        SetGestureEnabled(gestureRight, _selectedController == 2);
+        SetGestureEnabled(gestureRight, gestureActive, useRealSensors);
+
+        // The gesture HUD was hidden for the menu (see Awake) — back on now
+        // that the run itself is starting.
+        if (gestureCanvasRight != null)
+            gestureCanvasRight.SetActive(true);
+        if (gestureCanvasLeft != null)
+            gestureCanvasLeft.SetActive(true);
 
         if (SpeedController.Instance != null)
             SpeedController.Instance.BeginGame();
@@ -221,23 +260,70 @@ public class StartScreenController : MonoBehaviour
         if (GameTimer.Instance != null)
             GameTimer.Instance.BeginTiming();
 
+        if (musicSource != null)
+            musicSource.Stop();
+
         if (canvasRoot != null)
             canvasRoot.SetActive(false);
 
         enabled = false;
     }
 
-    // Cycles the middle info panel between controls and the trick list every
-    // CarouselInterval seconds, looping — driven off Time.time so no timer
-    // field is needed.
+    // Cycles the middle info panel between pages (rules/controls/trick
+    // diagrams/gesture diagrams) every CarouselInterval seconds, looping —
+    // driven off Time.time so no timer field is needed. Pages are whole
+    // pre-built GameObjects (not just swapped text) so some can be visual
+    // diagrams instead of plain text.
     private void UpdateCarousel()
     {
-        if (carouselText == null || CarouselPages.Length == 0)
+        if (carouselPages == null || carouselPages.Length == 0)
             return;
 
-        int page = Mathf.FloorToInt(Time.time / CarouselInterval) % CarouselPages.Length;
-        if (carouselText.text != CarouselPages[page])
-            carouselText.text = CarouselPages[page];
+        if (Time.time < CarouselStartDelay)
+        {
+            if (_lastCarouselPage != NoCarouselPage)
+            {
+                for (int i = 0; i < carouselPages.Length; i++)
+                    if (carouselPages[i] != null)
+                        carouselPages[i].SetActive(false);
+                if (carouselBackground != null)
+                    carouselBackground.SetActive(false);
+                _lastCarouselPage = NoCarouselPage;
+            }
+            return;
+        }
+
+        int rawPage = Mathf.FloorToInt((Time.time - CarouselStartDelay) / CarouselInterval) % carouselPages.Length;
+        int page = ResolveDisplayPage(rawPage);
+        if (page == _lastCarouselPage)
+            return;
+
+        if (carouselBackground != null)
+            carouselBackground.SetActive(true);
+        for (int i = 0; i < carouselPages.Length; i++)
+            if (carouselPages[i] != null)
+                carouselPages[i].SetActive(i == page);
+        _lastCarouselPage = page;
+    }
+
+    // Skips past any TopResultsPage that has nothing to show yet (no one's
+    // played that category, so it'd just be 3 rows of "--") — falls through
+    // to the next page in cycle order instead. Non-TopResultsPage pages
+    // (rules/diagrams) always count as showable.
+    private int ResolveDisplayPage(int page)
+    {
+        for (int attempt = 0; attempt < carouselPages.Length; attempt++)
+        {
+            int idx = (page + attempt) % carouselPages.Length;
+            GameObject candidate = carouselPages[idx];
+            if (candidate == null)
+                continue;
+
+            TopResultsPage results = candidate.GetComponent<TopResultsPage>();
+            if (results == null || results.HasAnyEntry())
+                return idx;
+        }
+        return page; // every page empty — shouldn't happen, fall back rather than show nothing
     }
 
     private static void SetPlayerControlEnabled(GameObject player, bool value)
@@ -250,9 +336,52 @@ public class StartScreenController : MonoBehaviour
             controller.enabled = value;
     }
 
-    private static void SetGestureEnabled(GestureInput gesture, bool value)
+    private static void SetGestureEnabled(GestureInput gesture, bool enabled, bool useRealSensors)
     {
-        if (gesture != null)
-            gesture.enabled = value;
+        if (gesture == null)
+            return;
+
+        gesture.enabled = enabled;
+        gesture.UseRealSensors = useRealSensors;
+    }
+
+    // Menu-only: turns a GestureInput on regardless of the (not yet made)
+    // controller choice, purely so this screen can read hand state from it.
+    // Harmless to actual gameplay — PlayerController is disabled at this
+    // point, so nothing consumes GestureInput's output but this menu.
+    // BeginGame overwrites .enabled/.UseRealSensors with the real choice
+    // right after, once a mode is confirmed.
+    private static void EnableGestureForMenu(GestureInput gesture, bool useRealSensors)
+    {
+        if (gesture == null)
+            return;
+
+        gesture.enabled = true;
+        gesture.UseRealSensors = useRealSensors;
+    }
+
+    private static bool IsLeanLeftDown(GestureInput gesture) => gesture != null && gesture.enabled && gesture.LeanLeftDown;
+    private static bool IsLeanRightDown(GestureInput gesture) => gesture != null && gesture.enabled && gesture.LeanRightDown;
+    private static bool IsJumpDown(GestureInput gesture) => gesture != null && gesture.enabled && gesture.JumpDown;
+
+    // "Both hands up, held" doesn't mean anything during actual play (only
+    // the flapping motion does, to avoid an accidental jump from just
+    // resting hands up) — but it's a natural, otherwise-unused signal for
+    // "move the row cursor up" here, so this menu reads it directly off
+    // GestureInput's raw per-hand state instead of its interpreted Jump.
+    private static bool EdgeBothHandsUp(GestureInput gesture, ref bool prev)
+    {
+        bool now = gesture != null && gesture.enabled && gesture.LeftHandUp && gesture.RightHandUp;
+        bool edgeUp = now && !prev;
+        prev = now;
+        return edgeUp;
+    }
+
+    private static bool EdgeDuck(GestureInput gesture, ref bool prev)
+    {
+        bool now = gesture != null && gesture.enabled && gesture.DuckHeld;
+        bool edgeUp = now && !prev;
+        prev = now;
+        return edgeUp;
     }
 }

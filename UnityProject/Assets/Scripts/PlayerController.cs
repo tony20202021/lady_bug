@@ -13,11 +13,15 @@ public class PlayerController : MonoBehaviour
     [SerializeField] private KeyCode rightKey = KeyCode.RightArrow;
     [SerializeField] private KeyCode upKey = KeyCode.UpArrow;
     [SerializeField] private KeyCode downKey = KeyCode.DownArrow;
-    [SerializeField] private KeyCode accelKey = KeyCode.I;
-    [SerializeField] private KeyCode brakeKey = KeyCode.J;
 
     [SerializeField] private float jumpHeightDelta = 1.4f;
-    [SerializeField] private float jumpDuration = 0.9f;
+    [SerializeField] private float jumpDuration = 1.3f;
+    // Keyboard taps used to end the jump the instant Up was released, which
+    // could cut it shorter than the time needed to also press a diagonal
+    // for a mid-air lane change. An early release now only ends the jump
+    // once at least this much of it has already played — gesture mode
+    // never ended early to begin with (see HandleInput).
+    [SerializeField] private float minJumpCommitDuration = 0.65f;
 
     [SerializeField] private float duckHeightDelta = 0.4f;
 
@@ -57,6 +61,8 @@ public class PlayerController : MonoBehaviour
     private enum CrashState { None, Tumbling, Blinking }
     private CrashState _crashState = CrashState.None;
     private float _crashTimer;
+    private bool _wasBouncingBeforeCrash; // resume resting on the partner afterward instead of dropping to the road
+    private float _crashBaseY; // ground reference for the tumble hop — the height we were at when we got hit, not always the road
     private Renderer _spriteRenderer;
 
     // When present and enabled (controller mode = gesture simulator/sensors),
@@ -69,8 +75,18 @@ public class PlayerController : MonoBehaviour
     public int HomeLane => startLane;
     public bool IsAirborne => _verticalState == VerticalState.Jumping || _verticalState == VerticalState.Bouncing;
     public bool IsDucking => _verticalState == VerticalState.Ducking;
-    public bool IsBraking => GestureActive ? _gestureInput.CurrentlyBraking : Input.GetKey(brakeKey);
     public float TopY => transform.position.y + transform.localScale.y / 2f;
+
+    // Called by WinSequence right before it disables this component and
+    // flies the player off-screen — PlayerAnimator keeps running afterward
+    // (it isn't disabled) and reads IsAirborne every frame, so without this
+    // it would keep whatever ground/air pose the player happened to be in
+    // at that instant instead of switching to the wing-flap frames for the
+    // "flying away" cutscene.
+    public void ForceAirborneVisual()
+    {
+        _verticalState = VerticalState.Jumping;
+    }
 
     // Used by the start screen to preview where a player will stand before
     // Start() has run (e.g. centering the sole player in 1-player mode).
@@ -150,14 +166,21 @@ public class PlayerController : MonoBehaviour
 
             if (IsAirborne)
             {
+                // Jumping over it is safe on its own now, solo — the co-op
+                // trick is still awarded on top of that if a partner happens
+                // to be ducking under it in the same lane at the same time.
                 PlayerController partner = FindPartnerInLane(_currentLane);
                 if (partner != null && partner.IsDucking)
-                {
                     AwardArchTrickOnce(arch, Midpoint(partner)); // in case this fires instead of/as well as the ducker's
-                    return; // bounced clean over a ducking partner
-                }
+                return; // jumped clean over it, alone or with a ducking partner
             }
         }
+
+        // Road-wide arch — the inverse rule: no need to duck, walking or
+        // ducking through it is fine, but being airborne when it's reached
+        // counts as a hit (falls through to StartCrash() below).
+        if (entity.GetComponent<TallArchObstacle>() != null && !IsAirborne)
+            return;
 
         ScoreValue scoreValue = entity.GetComponent<ScoreValue>();
         if (scoreValue != null)
@@ -166,13 +189,30 @@ public class PlayerController : MonoBehaviour
                 ScoreManager.Instance.SpawnPopup(scoreValue.value, transform.position);
 
             if (scoreValue.value < 0)
+            {
                 StartCrash();
+                if (SfxManager.Instance != null)
+                    SfxManager.Instance.PlayBad(entity.gameObject.name);
+                if (AchievementStats.Instance != null)
+                    AchievementStats.Instance.RecordHit(entity.gameObject.name);
+            }
+            else
+            {
+                if (SfxManager.Instance != null)
+                    SfxManager.Instance.PlayPickup();
+                if (AchievementStats.Instance != null)
+                    AchievementStats.Instance.RecordCollected(entity.gameObject.name);
+            }
 
             Destroy(entity.gameObject);
             return;
         }
 
         StartCrash();
+        if (SfxManager.Instance != null)
+            SfxManager.Instance.PlayBad(entity.gameObject.name);
+        if (AchievementStats.Instance != null)
+            AchievementStats.Instance.RecordHit(entity.gameObject.name);
     }
 
     private PlayerController FindPartnerInLane(int lane)
@@ -183,6 +223,16 @@ public class PlayerController : MonoBehaviour
                 return other;
         }
         return null;
+    }
+
+    private bool IsSupportingBouncingPartner()
+    {
+        foreach (var other in FindObjectsOfType<PlayerController>())
+        {
+            if (other != this && other.CurrentLane == _currentLane && other._verticalState == VerticalState.Bouncing)
+                return true;
+        }
+        return false;
     }
 
     private Vector3 Midpoint(PlayerController other) => (transform.position + other.transform.position) / 2f;
@@ -202,6 +252,12 @@ public class PlayerController : MonoBehaviour
         _crashState = CrashState.Tumbling;
         _crashTimer = 0f;
 
+        // If we were resting on a partner's back, tumble in place at that
+        // height and resume Bouncing afterward instead of snapping down to
+        // the road — otherwise we'd land right on top of them.
+        _wasBouncingBeforeCrash = _verticalState == VerticalState.Bouncing;
+        _crashBaseY = transform.position.y - transform.localScale.y / 2f;
+
         // Reset any jump/duck in progress so the tumble starts from a clean pose.
         _verticalState = VerticalState.Normal;
         Vector3 scale = transform.localScale;
@@ -219,7 +275,7 @@ public class PlayerController : MonoBehaviour
         float t = Mathf.Clamp01(_crashTimer / tumbleDuration);
 
         Vector3 pos = transform.position;
-        pos.y = _baseGroundY + _baseScaleY / 2f + Mathf.Sin(t * Mathf.PI) * tumbleHopHeight;
+        pos.y = _crashBaseY + _baseScaleY / 2f + Mathf.Sin(t * Mathf.PI) * tumbleHopHeight;
         transform.position = pos;
 
         // Two full turns over the course of the hop.
@@ -229,11 +285,22 @@ public class PlayerController : MonoBehaviour
         {
             transform.rotation = Quaternion.identity;
             Vector3 landed = transform.position;
-            landed.y = _baseGroundY + _baseScaleY / 2f;
+            landed.y = _crashBaseY + _baseScaleY / 2f;
             transform.position = landed;
 
             _crashState = CrashState.Blinking;
             _crashTimer = 0f;
+
+            // Partner's still there grounded in our lane — go back to
+            // resting on their back instead of standing next to (on) them.
+            if (_wasBouncingBeforeCrash && FindLandingBlocker(_currentLane) != null)
+            {
+                _verticalState = VerticalState.Bouncing;
+                _bounceRising = false;
+                _bounceCharging = false;
+                _bounceChargeConsumed = false;
+                _actionTimer = jumpDuration * 0.4f;
+            }
         }
     }
 
@@ -258,11 +325,13 @@ public class PlayerController : MonoBehaviour
     private void HandleInput()
     {
         HandleLaneInput();
-        HandleSpeedInput();
 
         if (_verticalState == VerticalState.Normal)
         {
-            if (UpKeyDown())
+            // Can't jump out from under a partner who's bouncing on our
+            // back — they'd lose their landing blocker mid-air and drop
+            // straight down into the same spot we just left.
+            if (UpKeyDown() && !IsSupportingBouncingPartner())
             {
                 _verticalState = VerticalState.Jumping;
                 _actionTimer = jumpDuration;
@@ -280,13 +349,32 @@ public class PlayerController : MonoBehaviour
         }
         else if (_verticalState == VerticalState.Jumping)
         {
+            if (GestureActive)
+            {
+                // Gesture jump is committed for the full jumpDuration (the
+                // timer in UpdateVerticalState brings it down on its own) —
+                // releasing the "both hands up" gesture doesn't cut it short
+                // like a keyboard tap does, since "both up" and a lean ("one
+                // up, one down") are physically different hand shapes: if
+                // release-to-land applied here, a player could never jump
+                // and then also shift lanes mid-air. Ducking mid-air (both
+                // hands down) still ends it early on purpose — an explicit
+                // "come down now".
+                if (DownKeyHeld())
+                    EndJump();
+            }
             // Held up to the jumpDuration cap (enforced in UpdateVerticalState);
             // release early and it comes down immediately — unless someone's
             // still grounded in this lane, then it bounces off them instead.
             // Jumps are normally a tap, so this fires almost every time —
             // it must go through the same occupant check as the timer expiry.
-            if (!UpKeyHeld())
+            // A release before minJumpCommitDuration has played is ignored
+            // outright, so even the quickest tap still leaves enough airtime
+            // to also press a diagonal for a mid-air lane change.
+            else if (!UpKeyHeld() && jumpDuration - _actionTimer >= minJumpCommitDuration)
+            {
                 EndJump();
+            }
         }
     }
 
@@ -333,24 +421,6 @@ public class PlayerController : MonoBehaviour
                 _laneRepeatTimer = laneRepeatInterval;
             }
         }
-    }
-
-    private void HandleSpeedInput()
-    {
-        if (SpeedController.Instance == null)
-            return;
-
-        // In gesture mode, GestureInput votes accel/brake directly from wave
-        // detection in its own Update() — nothing to do here.
-        if (GestureActive)
-            return;
-
-        // Each held key casts one vote per frame — SpeedController sums
-        // votes from both players (LateUpdate, after everyone's Update runs).
-        if (Input.GetKey(accelKey))
-            SpeedController.Instance.RegisterAccel();
-        if (Input.GetKey(brakeKey))
-            SpeedController.Instance.RegisterBrake();
     }
 
     private void MoveLane(int direction)

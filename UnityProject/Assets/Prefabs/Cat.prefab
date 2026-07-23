@@ -27,8 +27,8 @@ Transform:
   m_GameObject: {fileID: 1144499814178919939}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 0, y: -0.48, z: 0}
-  m_LocalScale: {x: 0.7, y: 0.01, z: 0.35}
+  m_LocalPosition: {x: 0, y: -0.58000004, z: 0}
+  m_LocalScale: {x: 0.84000003, y: 0.01, z: 0.42000002}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 730703008824695143}
@@ -97,6 +97,7 @@ GameObject:
   - component: {fileID: 730703008824695143}
   - component: {fileID: 9046764489106659970}
   - component: {fileID: 5175433940065554347}
+  - component: {fileID: 6605101359455327120}
   - component: {fileID: 7975893192670755081}
   m_Layer: 0
   m_Name: Cat
@@ -114,7 +115,7 @@ Transform:
   m_GameObject: {fileID: 3450303084787522864}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0.5, z: 0}
+  m_LocalPosition: {x: 0, y: 0.6, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -148,6 +149,27 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   value: -1
+--- !u!114 &6605101359455327120
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3450303084787522864}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2a50ac341ff49407d8b1fc54f84c554b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  laneWidth: 4
+  laneCount: 3
+  moveSpeed: 1.5
+  minDelay: 1.5
+  maxDelay: 4
+  idleWiggleAngle: 4
+  idleWiggleSpeed: 3
+  crossingWiggleAngle: 10
+  crossingWiggleSpeed: 12
 --- !u!65 &7975893192670755081
 BoxCollider:
   m_ObjectHideFlags: 0
@@ -167,7 +189,7 @@ BoxCollider:
   m_ProvidesContacts: 0
   m_Enabled: 1
   serializedVersion: 3
-  m_Size: {x: 1, y: 1, z: 0.3}
+  m_Size: {x: 1.2, y: 1.2, z: 0.3}
   m_Center: {x: 0, y: 0, z: 0}
 --- !u!1 &6525662279032297629
 GameObject:
@@ -197,7 +219,7 @@ Transform:
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_LocalScale: {x: 1.2, y: 1.2, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 730703008824695143}

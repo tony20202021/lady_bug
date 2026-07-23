@@ -19,6 +19,20 @@ public class HelpController : MonoBehaviour
 
     private void Update()
     {
+        if (IsOpen && Input.GetKeyDown(KeyCode.Q))
+        {
+            // Hand off straight to the quit-confirm dialog without resuming
+            // the game in between — braking was removed from every control
+            // scheme, so this help-screen key is the only way left to reach
+            // the quit prompt.
+            IsOpen = false;
+            if (helpRoot != null)
+                helpRoot.SetActive(false);
+            if (PauseController.Instance != null)
+                PauseController.Instance.OpenDialog();
+            return;
+        }
+
         if (!Input.GetKeyDown(KeyCode.F1))
             return;
 

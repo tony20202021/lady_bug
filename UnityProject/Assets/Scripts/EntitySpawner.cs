@@ -15,8 +15,8 @@ public class EntitySpawner : MonoBehaviour
     [SerializeField] private int laneCount = 3;
     [SerializeField] private float laneWidth = 3f;
     [SerializeField] private float spawnZ = 70f;
-    [SerializeField] private float minInterval = 0.8f;
-    [SerializeField] private float maxInterval = 2f;
+    [SerializeField] private float minInterval = 1.1f;
+    [SerializeField] private float maxInterval = 2.6f;
 
     private float _timer;
     private float _nextInterval;
