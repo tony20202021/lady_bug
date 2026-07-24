@@ -41,9 +41,9 @@ public class GearSfx : MonoBehaviour
             if (shiftSource != null)
                 shiftSource.Play();
             // Only celebrate speeding up — a crash-induced drop in gear
-            // isn't something to pop up a "shifted to N" banner for.
+            // isn't something to flash the lever icon for.
             if (gear > _lastGear && SpeedIndicator.Instance != null)
-                SpeedIndicator.Instance.SpawnGearPopup(gear);
+                SpeedIndicator.Instance.PlayGearShift();
         }
         _lastGear = gear;
 

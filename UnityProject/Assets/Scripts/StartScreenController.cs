@@ -1,3 +1,4 @@
+using System.Collections;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -15,6 +16,7 @@ public class StartScreenController : MonoBehaviour
     [SerializeField] private Text option1Text;
     [SerializeField] private Text option2Text;
     [SerializeField] private Outline optionsRowOutline;
+    [SerializeField] private Image optionsRowBg;
 
     [SerializeField] private Image controller1Bg;
     [SerializeField] private Image controller2Bg;
@@ -23,9 +25,11 @@ public class StartScreenController : MonoBehaviour
     [SerializeField] private Text controller2Text;
     [SerializeField] private Text controller3Text;
     [SerializeField] private Outline controllerRowOutline;
+    [SerializeField] private Image controllerRowBg;
 
     [SerializeField] private Image startBg;
     [SerializeField] private Outline startOutline;
+    [SerializeField] private Image startRowBg;
 
     [SerializeField] private Text notImplementedText;
 
@@ -34,19 +38,40 @@ public class StartScreenController : MonoBehaviour
     [SerializeField] private GestureInput gestureRight;
     [SerializeField] private GestureInput gestureLeft;
 
+    // "Датчики" now means an asymmetric pair, not two sets of hand sensors:
+    // player 1 (right) reads real hand-distance sensors as before, player 2
+    // (left) reads their own physical joystick board instead — see
+    // JoystickInput/JoystickSerial and ArduinoFirmware/Joystick.
+    [SerializeField] private JoystickInput joystickLeft;
+
     // Per-player КЛАВИШИ/ЖЕСТЫ gameplay HUD (CreateGesturePanel) — hidden
     // while this menu is up (they're feedback for actual play, not menu
     // chrome) and revealed once BeginGame fires.
     [SerializeField] private GameObject gestureCanvasRight;
     [SerializeField] private GameObject gestureCanvasLeft;
 
+    // Live in-game "ТОП" panel — also gameplay HUD, not menu chrome, and
+    // its own semi-transparent background bled through the (also
+    // semi-transparent) carousel behind the menu otherwise. The carousel's
+    // own top-results pages already show the same info cleanly.
+    [SerializeField] private GameObject topScoresPanel;
+
     [SerializeField] private AudioSource musicSource;
+    [SerializeField] private float musicFadeOutDuration = 2.5f;
 
     private static readonly Color SelectedColor = new Color(0.2f, 0.75f, 0.25f, 0.9f);
     private static readonly Color UnselectedColor = new Color(0.15f, 0.15f, 0.15f, 0.85f);
-    private static readonly Color StartFocusColor = new Color(0.4f, 0.35f, 0.1f, 0.9f);
     private static readonly Color FocusOutline = new Color(1f, 0.85f, 0.15f);
     private static readonly Color IdleOutline = Color.gray;
+    // Row background actually tints yellow while that row has focus now
+    // (previously only the outline did — the fill stayed a near-invisible
+    // 0.05-alpha white regardless of focus, which read as "no highlight
+    // at all"). Start used to have its own separate, dim brownish
+    // "StartFocusColor" for this — now it's just another row, so its
+    // background follows the same yellow-when-focused rule as the other
+    // two, and the button INSIDE it turns SelectedColor green instead.
+    private static readonly Color RowFocusColor = new Color(1f, 0.85f, 0.15f, 0.22f);
+    private static readonly Color RowIdleColor = new Color(1f, 1f, 1f, 0.05f);
 
     private const int RowCount = 3; // 0 = player count, 1 = controller type, 2 = start button
     private const int ControllerCount = 3; // 0 = keyboard, 1 = distance sensors, 2 = sensor simulator
@@ -56,13 +81,18 @@ public class StartScreenController : MonoBehaviour
     private int _row;
 
     // TEMPORARY, for faster debug/test cycling — revert to 10f for real play.
-    private const float CarouselInterval = 2f;
+    // Floor for every page's dwell time — animated pages (arch/ring trick,
+    // gesture diagrams) can ask for longer via GetPageDwellDuration so a
+    // slower carousel here doesn't also stretch their fixed-length loops
+    // out further than they already run.
+    private const float CarouselInterval = 4f;
     // Pure pause before the carousel shows anything at all — first
     // impression is the game running behind the menu buttons, not a table,
     // same as before the carousel/winner-tables existed.
     private const float CarouselStartDelay = 4f;
     private const int NoCarouselPage = -2; // sentinel distinct from _lastCarouselPage's initial -1
     private int _lastCarouselPage = -1;
+    private float _pageDwellElapsed;
 
     private PlayerController _rightController;
     private int _rightHomeLane;
@@ -95,6 +125,8 @@ public class StartScreenController : MonoBehaviour
             gestureCanvasRight.SetActive(false);
         if (gestureCanvasLeft != null)
             gestureCanvasLeft.SetActive(false);
+        if (topScoresPanel != null)
+            topScoresPanel.SetActive(false);
 
         // Nothing's chosen a controller yet at this point (that's what row 1
         // picks), so the menu itself listens for whichever gesture source is
@@ -105,11 +137,24 @@ public class StartScreenController : MonoBehaviour
         EnableGestureForMenu(gestureRight, useRealSensors);
         EnableGestureForMenu(gestureLeft, useRealSensors);
 
-        if (musicSource != null)
-            musicSource.Play();
+        // Not started here anymore — Awake runs the instant the scene
+        // loads, while the flower-fill/countdown intro screen is still
+        // covering this menu, so playing it here meant music was already
+        // running underneath a screen that's supposed to be silent. Started
+        // by IntroSequence.Finish() instead, once that screen actually goes
+        // away. PlayMusic() below is what it calls.
 
         UpdateVisuals();
         UpdateCarousel();
+    }
+
+    // Called by IntroSequence once the flower-fill/countdown screen
+    // finishes and this menu is actually revealed — see the Awake comment
+    // above for why it doesn't just start here.
+    public void PlayMusic()
+    {
+        if (musicSource != null)
+            musicSource.Play();
     }
 
     private void Update()
@@ -204,12 +249,18 @@ public class StartScreenController : MonoBehaviour
 
         if (optionsRowOutline != null)
             optionsRowOutline.effectColor = _row == 0 ? FocusOutline : IdleOutline;
+        if (optionsRowBg != null)
+            optionsRowBg.color = _row == 0 ? RowFocusColor : RowIdleColor;
         if (controllerRowOutline != null)
             controllerRowOutline.effectColor = _row == 1 ? FocusOutline : IdleOutline;
+        if (controllerRowBg != null)
+            controllerRowBg.color = _row == 1 ? RowFocusColor : RowIdleColor;
         if (startOutline != null)
             startOutline.effectColor = _row == 2 ? FocusOutline : IdleOutline;
+        if (startRowBg != null)
+            startRowBg.color = _row == 2 ? RowFocusColor : RowIdleColor;
         if (startBg != null)
-            startBg.color = _row == 2 ? StartFocusColor : UnselectedColor;
+            startBg.color = _row == 2 ? SelectedColor : UnselectedColor;
 
         // Any navigation clears the "not implemented" message from a
         // previous attempt to start with sensors selected.
@@ -231,6 +282,24 @@ public class StartScreenController : MonoBehaviour
                 }
                 return;
             }
+
+            // Player 2's board is separate hardware (see joystickLeft) — only
+            // needed in 2-player mode, and checked on its own so a missing
+            // joystick doesn't get misreported as the (already-connected)
+            // hand-sensor board being the problem.
+            if (_selectedPlayers == 2)
+            {
+                bool joystickConnected = JoystickSerial.Instance != null && JoystickSerial.Instance.IsConnected;
+                if (!joystickConnected)
+                {
+                    if (notImplementedText != null)
+                    {
+                        notImplementedText.gameObject.SetActive(true);
+                        notImplementedText.text = "Джойстик игрока 2 не найден — проверь подключение платы";
+                    }
+                    return;
+                }
+            }
         }
 
         bool gestureActive = _selectedController == 1 || _selectedController == 2;
@@ -241,7 +310,19 @@ public class StartScreenController : MonoBehaviour
         if (_selectedPlayers == 2)
         {
             SetPlayerControlEnabled(playerLeft, true);
-            SetGestureEnabled(gestureLeft, gestureActive, useRealSensors);
+
+            if (_selectedController == 1)
+            {
+                // "Датчики" for player 2 means their own joystick board, not
+                // a second pair of hand sensors — see joystickLeft's comment.
+                SetGestureEnabled(gestureLeft, false, false);
+                SetJoystickEnabled(joystickLeft, true);
+            }
+            else
+            {
+                SetGestureEnabled(gestureLeft, gestureActive, useRealSensors);
+                SetJoystickEnabled(joystickLeft, false);
+            }
         }
 
         SetPlayerControlEnabled(playerRight, true);
@@ -253,6 +334,13 @@ public class StartScreenController : MonoBehaviour
             gestureCanvasRight.SetActive(true);
         if (gestureCanvasLeft != null)
             gestureCanvasLeft.SetActive(true);
+        // Not shown at all if there's nothing on any leaderboard yet — a
+        // fresh save otherwise showed this panel immediately with nothing
+        // but 3 rows of "--" and no photos in it, reading as an empty gray
+        // box rather than a real feature. See HasAnyRecordAnywhere's own
+        // comment.
+        if (topScoresPanel != null)
+            topScoresPanel.SetActive(HighScoreManager.Instance != null && HighScoreManager.Instance.HasAnyRecordAnywhere());
 
         if (SpeedController.Instance != null)
             SpeedController.Instance.BeginGame();
@@ -260,18 +348,49 @@ public class StartScreenController : MonoBehaviour
         if (GameTimer.Instance != null)
             GameTimer.Instance.BeginTiming();
 
-        if (musicSource != null)
-            musicSource.Stop();
-
-        if (canvasRoot != null)
-            canvasRoot.SetActive(false);
+        // Menu music had a strong, deliberate opening (per its own asset) so
+        // it's fine to start abruptly, but cutting it dead at BeginGame felt
+        // jarring — fades to silence over musicFadeOutDuration instead. The
+        // canvas can't just SetActive(false) right away like before, though:
+        // that would stop this coroutine (and the AudioSource) instantly,
+        // same as it does today — so the menu's *visuals* are hidden
+        // immediately via the Canvas component instead (a GameObject-active
+        // trick doesn't apply to just the renderer), while the GameObject
+        // itself — and the fade running on it — stays alive until the fade
+        // finishes and deactivates it for real.
+        Canvas canvas = canvasRoot != null ? canvasRoot.GetComponent<Canvas>() : null;
+        if (canvas != null)
+            canvas.enabled = false;
+        StartCoroutine(FadeOutMusicThenHide(musicFadeOutDuration));
 
         enabled = false;
     }
 
+    private IEnumerator FadeOutMusicThenHide(float duration)
+    {
+        if (musicSource != null)
+        {
+            float startVolume = musicSource.volume;
+            float t = 0f;
+            while (t < duration)
+            {
+                t += Time.deltaTime;
+                musicSource.volume = Mathf.Lerp(startVolume, 0f, t / duration);
+                yield return null;
+            }
+            musicSource.Stop();
+            musicSource.volume = startVolume; // restored in case this source ever plays again
+        }
+
+        if (canvasRoot != null)
+            canvasRoot.SetActive(false);
+    }
+
     // Cycles the middle info panel between pages (rules/controls/trick
-    // diagrams/gesture diagrams) every CarouselInterval seconds, looping —
-    // driven off Time.time so no timer field is needed. Pages are whole
+    // diagrams/gesture diagrams), looping — driven by an elapsed-time
+    // counter per page rather than a fixed CarouselInterval for every page
+    // (see GetPageDwellDuration), so an animated page's own loop doesn't
+    // get cut off mid-cycle by a shorter global timer. Pages are whole
     // pre-built GameObjects (not just swapped text) so some can be visual
     // diagrams instead of plain text.
     private void UpdateCarousel()
@@ -293,37 +412,65 @@ public class StartScreenController : MonoBehaviour
             return;
         }
 
-        int rawPage = Mathf.FloorToInt((Time.time - CarouselStartDelay) / CarouselInterval) % carouselPages.Length;
-        int page = ResolveDisplayPage(rawPage);
-        if (page == _lastCarouselPage)
+        if (_lastCarouselPage < 0)
+        {
+            ShowCarouselPage(0);
             return;
+        }
 
+        _pageDwellElapsed += Time.deltaTime;
+        if (_pageDwellElapsed >= GetPageDwellDuration(_lastCarouselPage))
+            ShowCarouselPage((_lastCarouselPage + 1) % carouselPages.Length);
+    }
+
+    // Always shows every page in order, including a TopResultsPage with
+    // nothing on it yet (3 rows of "--", same placeholder any other empty
+    // table shows) — previously skipped those entirely, which meant a save
+    // with only 2 of the 4 categories played only ever cycled through those
+    // 2, with the other 2 never appearing until played at least once.
+    private void ShowCarouselPage(int rawIndex)
+    {
         if (carouselBackground != null)
             carouselBackground.SetActive(true);
         for (int i = 0; i < carouselPages.Length; i++)
             if (carouselPages[i] != null)
-                carouselPages[i].SetActive(i == page);
-        _lastCarouselPage = page;
+                carouselPages[i].SetActive(i == rawIndex);
+
+        _lastCarouselPage = rawIndex;
+        _pageDwellElapsed = 0f;
     }
 
-    // Skips past any TopResultsPage that has nothing to show yet (no one's
-    // played that category, so it'd just be 3 rows of "--") — falls through
-    // to the next page in cycle order instead. Non-TopResultsPage pages
-    // (rules/diagrams) always count as showable.
-    private int ResolveDisplayPage(int page)
+    // Animated pages report their own natural loop length (see each
+    // component's own CycleDuration) so this carousel doesn't cut them off
+    // partway through — gesture pages specifically ask for
+    // GestureDiagramAnimation.RepeatCount full loops before advancing.
+    // Falls back to the plain CarouselInterval for static pages (checklists,
+    // object grids, plain diagrams) that don't have any of these.
+    private float GetPageDwellDuration(int pageIndex)
     {
-        for (int attempt = 0; attempt < carouselPages.Length; attempt++)
-        {
-            int idx = (page + attempt) % carouselPages.Length;
-            GameObject candidate = carouselPages[idx];
-            if (candidate == null)
-                continue;
+        GameObject page = carouselPages != null && pageIndex >= 0 && pageIndex < carouselPages.Length
+            ? carouselPages[pageIndex]
+            : null;
+        if (page == null)
+            return CarouselInterval;
 
-            TopResultsPage results = candidate.GetComponent<TopResultsPage>();
-            if (results == null || results.HasAnyEntry())
-                return idx;
-        }
-        return page; // every page empty — shouldn't happen, fall back rather than show nothing
+        ArchTrickAnimation arch = page.GetComponent<ArchTrickAnimation>();
+        if (arch != null)
+            return Mathf.Max(CarouselInterval, arch.TotalDisplayDuration);
+
+        RingTrickAnimation ring = page.GetComponent<RingTrickAnimation>();
+        if (ring != null)
+            return Mathf.Max(CarouselInterval, ring.TotalDisplayDuration);
+
+        GestureDiagramAnimation gesture = page.GetComponent<GestureDiagramAnimation>();
+        if (gesture != null)
+            return Mathf.Max(CarouselInterval, gesture.TotalDisplayDuration);
+
+        TrickDiagramAnimation trick = page.GetComponent<TrickDiagramAnimation>();
+        if (trick != null)
+            return Mathf.Max(CarouselInterval, trick.TotalDisplayDuration);
+
+        return CarouselInterval;
     }
 
     private static void SetPlayerControlEnabled(GameObject player, bool value)
@@ -343,6 +490,14 @@ public class StartScreenController : MonoBehaviour
 
         gesture.enabled = enabled;
         gesture.UseRealSensors = useRealSensors;
+    }
+
+    private static void SetJoystickEnabled(JoystickInput joystick, bool enabled)
+    {
+        if (joystick == null)
+            return;
+
+        joystick.enabled = enabled;
     }
 
     // Menu-only: turns a GestureInput on regardless of the (not yet made)

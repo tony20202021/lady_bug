@@ -37,7 +37,13 @@ public class SnakePose : MonoBehaviour
         float aspect = (float)tex.width / tex.height;
         Transform spriteTransform = spriteRenderer.transform;
         Vector3 scale = spriteTransform.localScale;
-        scale.x = height * aspect;
+        // Preserve whichever way LaneWalker currently has this sprite
+        // facing (its own scale.x sign, flipped to match the direction of
+        // travel — see LaneWalker.TryStartMove) — only the magnitude needs
+        // updating here for the new texture's aspect ratio, overwriting the
+        // sign back to always-positive would un-flip the snake mid-turn.
+        float sign = scale.x < 0f ? -1f : 1f;
+        scale.x = height * aspect * sign;
         scale.y = height;
         spriteTransform.localScale = scale;
 

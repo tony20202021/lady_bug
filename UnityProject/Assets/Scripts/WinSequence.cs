@@ -9,23 +9,62 @@ public class WinSequence : MonoBehaviour
     public static WinSequence Instance { get; private set; }
 
     // TEMPORARY, for faster debug/test runs — revert to 100f for real play.
-    [SerializeField] private float winDistanceKm = 10f;
+    [SerializeField] private float winDistanceKm = 1f;
 
     // Exposed so the start-screen "ЦЕЛЬ" instructions can show the real
     // distance instead of a hardcoded number that'd lie while this is
     // temporarily lowered for testing.
     public float WinDistanceKm => winDistanceKm;
 
+    // Shown first, before controls are disabled and anything starts fading
+    // out — a plain "nothing's responding anymore" moment otherwise, with
+    // no cue why.
+    [SerializeField] private GameObject finishText;
+    [SerializeField] private float finishTextDuration = 1.6f;
+
     [SerializeField] private RectTransform winTextRoot;
+    // How long the title sits alone on screen at the very end, once
+    // everything else (stats, records, leaderboard tables) has already
+    // finished and hidden — see the end of RunSequence.
+    [SerializeField] private float finalTitleHoldDuration = 4f;
+    // Shared dark-tint backdrop behind both the record reveal and the stats
+    // pages below it — same treatment every other table in the game uses,
+    // shown for the span covering both (see ShowRecordAndStats).
+    [SerializeField] private GameObject statsBackdrop;
+    // Record reveal — one checkbox row (CreateWinCheckRow), text swapped as
+    // each newly-qualifying category is announced. recordRowRoot is the
+    // row's own container (checkbox + text together) for show/hide.
+    [SerializeField] private GameObject recordRowRoot;
     [SerializeField] private Text recordText;
     [SerializeField] private float recordRevealDuration = 2.5f;
-    [SerializeField] private Text achievementsText;
+    // Stats pages — a title plus a pool of checkbox rows (CreateWinCheckRow),
+    // matching the checklist style already used elsewhere (СУТЬ ИГРЫ, ЦЕЛЬ)
+    // instead of one big multi-line text block. Each page uses however many
+    // rows it needs (statsRows.Length is the max across any page); unused
+    // ones for that page are hidden via their own root.
+    [SerializeField] private Text statsTitle;
+    [SerializeField] private Text[] statsRows;
+    [SerializeField] private GameObject[] statsRowRoots;
     [SerializeField] private float achievementsPageDuration = 5f;
-    [SerializeField] private int achievementsLoopCount = 2;
+    // СОБРАНО/СБИТО use this icon grid instead of the checkbox rows above —
+    // one small icon per unit collected/hit (repeated per count) plus a
+    // single "ИТОГО ±N" line, no per-type text breakdown. See
+    // ShowIconStatsPage.
+    [SerializeField] private RawImage[] statsIconSlots;
+    [SerializeField] private Text statsTotalText;
+    [SerializeField] private Texture2D cherryIcon;
+    [SerializeField] private Texture2D heartIcon;
+    [SerializeField] private Texture2D flowerIcon;
+    [SerializeField] private Texture2D dogIcon;
+    [SerializeField] private Texture2D catIcon;
+    [SerializeField] private Texture2D bicycleIcon;
+    // Container for the tables below (background + all 4 pages) — kept
+    // inactive except while ShowLeaderboardTables is actually running, so
+    // its background panel doesn't sit visible as an empty tinted box from
+    // the moment the game starts.
+    [SerializeField] private GameObject leaderboardRoot;
     // Real top-3 tables (TopResultsPage, photo slots included), one per
-    // leaderboard category — same component the start-screen carousel uses,
-    // shown as the finale of the recap right after the run's photo is
-    // captured instead of a plain numeric rank line.
+    // leaderboard category — same component the start-screen carousel uses.
     [SerializeField] private GameObject[] leaderboardPages;
 
     [SerializeField] private float entityFadeDuration = 1.5f;
@@ -34,18 +73,37 @@ public class WinSequence : MonoBehaviour
     [SerializeField] private float flyDistanceGain = 220f;
 
     private bool _triggered;
+    // Set by WaitPage the instant any button/gesture is pressed during the
+    // post-win recap — every remaining stage (including the current one)
+    // bails out immediately so the whole recap collapses straight to the
+    // reload, instead of only skipping the one page being shown.
+    private bool _skipToEnd;
 
     public bool Triggered => _triggered;
 
     private void Awake()
     {
         Instance = this;
+        if (finishText != null)
+            finishText.SetActive(false);
         if (winTextRoot != null)
             winTextRoot.gameObject.SetActive(false);
-        if (recordText != null)
-            recordText.gameObject.SetActive(false);
-        if (achievementsText != null)
-            achievementsText.gameObject.SetActive(false);
+        if (statsBackdrop != null)
+            statsBackdrop.SetActive(false);
+        if (recordRowRoot != null)
+            recordRowRoot.SetActive(false);
+        if (statsTitle != null)
+            statsTitle.gameObject.SetActive(false);
+        if (statsRowRoots != null)
+            foreach (var root in statsRowRoots)
+                if (root != null)
+                    root.SetActive(false);
+        if (statsIconSlots != null)
+            foreach (var icon in statsIconSlots)
+                if (icon != null)
+                    icon.gameObject.SetActive(false);
+        if (statsTotalText != null)
+            statsTotalText.gameObject.SetActive(false);
     }
 
     public void TryTrigger(float distanceKm)
@@ -60,6 +118,16 @@ public class WinSequence : MonoBehaviour
 
     private IEnumerator RunSequence(float winTimestamp)
     {
+        // First thing shown, before anything else changes — controls go
+        // dead the moment this sequence takes over (right below), so the
+        // player needs to see why before the world starts fading/flying.
+        if (finishText != null)
+        {
+            finishText.SetActive(true);
+            yield return new WaitForSeconds(finishTextDuration);
+            finishText.SetActive(false);
+        }
+
         foreach (var spawner in FindObjectsOfType<EntitySpawner>())
             spawner.enabled = false;
         foreach (var spawner in FindObjectsOfType<SideScenerySpawner>())
@@ -91,6 +159,14 @@ public class WinSequence : MonoBehaviour
         foreach (var pc in players)
         {
             pc.ForceAirborneVisual(); // wings out for the flight, not whatever ground/air pose they were mid-stride in
+            // If the win condition landed mid-crash-tumble, PlayerController's
+            // own spin (transform.rotation, see StartCrash/UpdateCrash) is
+            // still mid-way through its 720° roll — disabling the component
+            // right below freezes it there for good, since nothing else
+            // ever resets it, and FlyPlayersAway only touches position/
+            // scale. Force upright here so the fly-away never carries a
+            // stuck sideways/upside-down spin with it.
+            pc.transform.rotation = Quaternion.identity;
             pc.enabled = false; // stops input AND OnTriggerEnter — no more collisions
         }
 
@@ -109,6 +185,15 @@ public class WinSequence : MonoBehaviour
             if (gestureCanvas != null)
                 gestureCanvas.SetActive(false);
         }
+
+        // Small live "ТОП" corner panel — same reasoning as the gesture HUD
+        // above (found by name rather than wired, matching that precedent):
+        // the real leaderboard tables shown later in this recap already
+        // cover the same information in full, so this one just clutters
+        // the fly-away/recap instead of adding anything.
+        GameObject topScoresPanel = GameObject.Find("TopScoresPanel");
+        if (topScoresPanel != null)
+            topScoresPanel.SetActive(false);
 
         if (SpeedController.Instance != null)
             SpeedController.Instance.BeginWinBoost();
@@ -135,145 +220,282 @@ public class WinSequence : MonoBehaviour
         if (winTextRoot != null)
             winTextRoot.gameObject.SetActive(true);
 
+        List<HighScoreManager.NewRecord> newRecords = null;
+        int[] ranksByCategory = null;
         if (HighScoreManager.Instance != null)
         {
             int score = ScoreManager.Instance != null ? ScoreManager.Instance.Score : 0;
             int tricks = TricksManager.Instance != null ? TricksManager.Instance.Count : 0;
             float maxSpeed = SpeedController.Instance != null ? SpeedController.Instance.MaxSpeedReached : 0f;
 
-            // Rank-per-category is only needed by the leaderboard tables
-            // themselves, which pull fresh top-3 data straight from
-            // HighScoreManager when shown, not from this snapshot.
-            List<HighScoreManager.NewRecord> newRecords =
-                HighScoreManager.Instance.ReportRun(winTimestamp, score, tricks, maxSpeed, out _);
+            // ranksByCategory feeds ИТОГИ ЗАБЕГА's own inline "НОВЫЙ РЕКОРД
+            // ТОП-N" tags below (every category's placement for this run,
+            // 0 = not top 10).
+            newRecords = HighScoreManager.Instance.ReportRun(winTimestamp, score, tricks, maxSpeed, out ranksByCategory);
+            // RevealRecords (photo capture included) should only fire for
+            // an actual "record" the way the player sees it on ИТОГИ
+            // ЗАБЕГА — top-3, not any top-10 placement. HighScoreManager
+            // still tracks/returns the full top-10 board either way (the
+            // leaderboard tables shown later need that full depth), this
+            // just narrows what counts as reveal/photo-worthy here.
+            newRecords = newRecords.FindAll(r => r.Rank <= 3);
+        }
+        // Fixed order for the whole post-win recap: run stats, then rank
+        // placements, then the photo, then the real leaderboard tables once
+        // — finally back to the start screen (which has its own copy of the
+        // top results plus instructions). Any button/gesture press at any
+        // point during this collapses straight to that reload instead of
+        // waiting out the rest.
+        _skipToEnd = false;
 
-            if (newRecords.Count > 0 && recordText != null)
+        // Backdrop spans both stages below (record reveal, then stats
+        // pages) so it reads as one continuous table rather than popping in
+        // and out between them.
+        if (statsBackdrop != null)
+            statsBackdrop.SetActive(true);
+        try
+        {
+            if (statsTitle != null)
+                yield return StartCoroutine(ShowStatsPages(winTimestamp, ranksByCategory));
+
+            if (!_skipToEnd && newRecords != null && newRecords.Count > 0 && recordText != null)
                 yield return StartCoroutine(RevealRecords(newRecords));
         }
+        finally
+        {
+            if (statsBackdrop != null)
+                statsBackdrop.SetActive(false);
+        }
 
-        if (achievementsText != null)
-            StartCoroutine(CycleAchievements(winTimestamp));
+        if (!_skipToEnd && leaderboardPages != null)
+            yield return StartCoroutine(ShowLeaderboardTables());
+
+        // Once the leaderboard tables hide, all that's left on screen is
+        // the plain "ВЫ ПРОШЛИ ДО КОНЦА" title — a good, symbolic ending
+        // beat on its own, held deliberately instead of flashing by for a
+        // single frame before the reload. Always plays in full, even if
+        // the rest of the recap was skipped — it's the actual ending, not
+        // another page to sit through.
+        yield return new WaitForSeconds(finalTitleHoldDuration);
+
+        SceneManager.LoadScene(SceneManager.GetActiveScene().name);
     }
 
-    // Post-win summary, split across a few pages (cycled, same "read at
-    // your own pace" idea as the in-game top-3 panel) since it doesn't fit
-    // on screen all at once: run totals, what was collected, what was hit,
-    // tricks — THEN the real per-category top-3 tables (leaderboardPages)
-    // last, stats about the run itself before rankings, not interleaved.
-    private IEnumerator CycleAchievements(float winTimestamp)
+    // Post-win summary, split across a few pages (same "read at your own
+    // pace" idea as the in-game top-3 panel) since it doesn't fit on screen
+    // all at once: run totals (each with an inline "НОВЫЙ РЕКОРД ТОП-N" tag
+    // if this run placed top-3 in that category — folded in here instead of
+    // a separate always-on rating column), what was collected, what was
+    // hit, tricks — shown once, not cycled (RunSequence already runs this
+    // whole recap exactly once: stats, then rank placements, then the
+    // photo, then the leaderboard tables).
+    private IEnumerator ShowStatsPages(float winTimestamp, int[] ranksByCategory)
     {
         AchievementStats stats = AchievementStats.Instance;
         float maxSpeed = SpeedController.Instance != null ? SpeedController.Instance.MaxSpeedReached : 0f;
         int minutes = Mathf.FloorToInt(winTimestamp / 60f);
         int secs = Mathf.FloorToInt(winTimestamp % 60f);
+        int score = ScoreManager.Instance != null ? ScoreManager.Instance.Score : 0;
+        int tricksCount = TricksManager.Instance != null ? TricksManager.Instance.Count : 0;
 
-        var pageList = new List<string>
+        // HighScoreManager's own category order (Time/Score/Tricks/Speed) —
+        // rank 1-3 only (top-10 placements outside that don't get called
+        // out here, the leaderboard tables shown later cover those).
+        string RecordSuffix(int categoryIndex)
         {
-            "ИТОГИ ЗАБЕГА\n"
-                + "Дистанция: " + winDistanceKm.ToString("0") + " км\n"
-                + "Макс. скорость: " + maxSpeed.ToString("0.0") + " км/ч\n"
-                + "Время: " + string.Format("{0:00}:{1:00}", minutes, secs),
+            int rank = ranksByCategory != null && categoryIndex < ranksByCategory.Length ? ranksByCategory[categoryIndex] : 0;
+            return rank >= 1 && rank <= 3 ? " — НОВЫЙ РЕКОРД ТОП-" + rank : "";
+        }
+
+        if (statsTitle != null)
+            statsTitle.gameObject.SetActive(true);
+
+        var totalsLines = new List<string>
+        {
+            "Время: " + string.Format("{0:00}:{1:00}", minutes, secs) + RecordSuffix(0),
+            "Очки: " + score + RecordSuffix(1),
+            "Трюки: " + tricksCount + RecordSuffix(2),
+            "Скорость: " + maxSpeed.ToString("0.0") + " км/ч" + RecordSuffix(3),
         };
+        yield return StartCoroutine(ShowTextStatsPage("ИТОГИ ЗАБЕГА", totalsLines));
 
-        // Zero-value rows are just noise (nobody collected/hit that thing),
-        // so each line only shows up if it actually happened — and if
-        // nothing at all happened in a section, that whole page is skipped
-        // rather than shown empty.
-        if (stats != null)
+        // СОБРАНО/СБИТО: a small icon per unit collected/hit (repeated per
+        // count) instead of a per-type text breakdown — see
+        // ShowIconStatsPage. A category with no known icon (anything past
+        // AchievementStats' own named buckets) still counts toward the
+        // ИТОГО total, it just doesn't get individual icons since we don't
+        // know which specific object it was.
+        if (!_skipToEnd && stats != null)
         {
-            var collected = new List<string>();
-            if (stats.CherriesCollected > 0) collected.Add("Вишенок: +" + stats.CherriesCollected);
-            if (stats.FlowersCollected > 0) collected.Add("Цветов: +" + stats.FlowersCollected);
-            if (stats.HeartsCollected > 0) collected.Add("Сердец: +" + stats.HeartsCollected);
-            int otherCollected = stats.TotalCollected - stats.CherriesCollected - stats.FlowersCollected - stats.HeartsCollected;
-            if (otherCollected > 0) collected.Add("Прочее: +" + otherCollected);
+            var collectedIcons = new List<Texture2D>();
+            AddIcons(collectedIcons, cherryIcon, stats.CherriesCollected);
+            AddIcons(collectedIcons, heartIcon, stats.HeartsCollected);
+            AddIcons(collectedIcons, flowerIcon, stats.FlowersCollected);
             if (stats.TotalCollected > 0)
+                yield return StartCoroutine(ShowIconStatsPage("СОБРАНО", collectedIcons, "ИТОГО +" + stats.TotalCollected));
+
+            if (!_skipToEnd)
             {
-                collected.Add("Всего собрано: +" + stats.TotalCollected);
-                pageList.Add("СОБРАНО\n" + string.Join("\n", collected));
+                var hitIcons = new List<Texture2D>();
+                AddIcons(hitIcons, dogIcon, stats.DogsHit);
+                AddIcons(hitIcons, catIcon, stats.CatsHit);
+                AddIcons(hitIcons, bicycleIcon, stats.BicyclesHit);
+                if (stats.TotalHit > 0)
+                    yield return StartCoroutine(ShowIconStatsPage("СБИТО", hitIcons, "ИТОГО -" + stats.TotalHit));
             }
 
-            var hit = new List<string>();
-            if (stats.BicyclesHit > 0) hit.Add("Великосипедов: -" + stats.BicyclesHit);
-            if (stats.CatsHit > 0) hit.Add("Кошек: -" + stats.CatsHit);
-            if (stats.DogsHit > 0) hit.Add("Собак: -" + stats.DogsHit);
-            int otherHit = stats.TotalHit - stats.BicyclesHit - stats.CatsHit - stats.DogsHit;
-            if (otherHit > 0) hit.Add("Прочее: -" + otherHit);
-            if (stats.TotalHit > 0)
+            if (!_skipToEnd)
             {
-                hit.Add("Всего сбито: -" + stats.TotalHit);
-                pageList.Add("СБИТО\n" + string.Join("\n", hit));
-            }
-
-            var tricks = new List<string>();
-            if (stats.RingTricks > 0) tricks.Add("Кольцо: +" + stats.RingTricks);
-            if (stats.ArchTricks > 0) tricks.Add("Арка: +" + stats.ArchTricks);
-            if (tricks.Count > 0)
-                pageList.Add("ТРЮКИ\n" + string.Join("\n", tricks));
-        }
-
-        string[] pages = pageList.ToArray();
-
-        achievementsText.gameObject.SetActive(true);
-        // Loops through every page a couple of times, but any button/gesture
-        // press jumps straight to the reset — an arcade cabinet needs to
-        // return to attract-mode (the start screen, with its own
-        // top-results pages) for the next player, not make them sit through
-        // a fixed-length recap they've already read.
-        for (int loop = 0; loop < achievementsLoopCount; loop++)
-        {
-            for (int page = 0; page < pages.Length; page++)
-            {
-                achievementsText.text = pages[page];
-
-                float t = 0f;
-                while (t < achievementsPageDuration)
-                {
-                    if (AnyInputPressed())
-                    {
-                        SceneManager.LoadScene(SceneManager.GetActiveScene().name);
-                        yield break;
-                    }
-                    t += Time.deltaTime;
-                    yield return null;
-                }
-            }
-
-            if (leaderboardPages != null)
-            {
-                achievementsText.gameObject.SetActive(false);
-                foreach (var leaderboardPage in leaderboardPages)
-                {
-                    if (leaderboardPage == null)
-                        continue;
-
-                    leaderboardPage.SetActive(true);
-
-                    float t = 0f;
-                    while (t < achievementsPageDuration)
-                    {
-                        if (AnyInputPressed())
-                        {
-                            SceneManager.LoadScene(SceneManager.GetActiveScene().name);
-                            yield break;
-                        }
-                        t += Time.deltaTime;
-                        yield return null;
-                    }
-
-                    leaderboardPage.SetActive(false);
-                }
-                achievementsText.gameObject.SetActive(true);
+                var tricks = new List<string>();
+                if (stats.RingTricks > 0) tricks.Add("Кольцо: +" + stats.RingTricks);
+                if (stats.ArchTricks > 0) tricks.Add("Арка: +" + stats.ArchTricks);
+                if (stats.LeapfrogTricks > 0) tricks.Add("Чехарда: +" + stats.LeapfrogTricks);
+                if (stats.SyncTricks > 0) tricks.Add("Синхрон: +" + stats.SyncTricks);
+                if (stats.HoverTricks > 0) tricks.Add("Зависание: +" + stats.HoverTricks);
+                if (stats.BigRingTricks > 0) tricks.Add("Большое кольцо: +" + stats.BigRingTricks);
+                if (stats.InfinityTricks > 0) tricks.Add("Бесконечность: +" + stats.InfinityTricks);
+                if (tricks.Count > 0)
+                    yield return StartCoroutine(ShowTextStatsPage("ТРЮКИ", tricks));
             }
         }
 
-        SceneManager.LoadScene(SceneManager.GetActiveScene().name);
+        if (statsTitle != null)
+            statsTitle.gameObject.SetActive(false);
     }
+
+    private static void AddIcons(List<Texture2D> list, Texture2D icon, int count)
+    {
+        if (icon == null)
+            return;
+        for (int i = 0; i < count; i++)
+            list.Add(icon);
+    }
+
+    private IEnumerator ShowTextStatsPage(string title, List<string> lines)
+    {
+        if (statsTitle != null)
+            statsTitle.text = title;
+
+        for (int i = 0; i < statsRows.Length; i++)
+        {
+            bool used = i < lines.Count;
+            if (statsRowRoots != null && i < statsRowRoots.Length && statsRowRoots[i] != null)
+                statsRowRoots[i].SetActive(used);
+            if (used && statsRows[i] != null)
+                statsRows[i].text = lines[i];
+        }
+
+        yield return StartCoroutine(WaitPage(achievementsPageDuration));
+
+        if (statsRowRoots != null)
+            foreach (var root in statsRowRoots)
+                if (root != null)
+                    root.SetActive(false);
+    }
+
+    // СОБРАНО/СБИТО's own page kind — a grid of small icons (one per unit,
+    // repeated per count, capped at however many slots the pool has) plus
+    // one "ИТОГО ±N" line, no per-type text.
+    private IEnumerator ShowIconStatsPage(string title, List<Texture2D> icons, string totalLine)
+    {
+        if (statsTitle != null)
+            statsTitle.text = title;
+
+        if (statsIconSlots != null)
+        {
+            for (int i = 0; i < statsIconSlots.Length; i++)
+            {
+                if (statsIconSlots[i] == null)
+                    continue;
+                bool used = i < icons.Count;
+                statsIconSlots[i].gameObject.SetActive(used);
+                if (used)
+                    statsIconSlots[i].texture = icons[i];
+            }
+        }
+        if (statsTotalText != null)
+        {
+            statsTotalText.text = totalLine;
+            statsTotalText.gameObject.SetActive(true);
+        }
+
+        yield return StartCoroutine(WaitPage(achievementsPageDuration));
+
+        if (statsIconSlots != null)
+            foreach (var icon in statsIconSlots)
+                if (icon != null)
+                    icon.gameObject.SetActive(false);
+        if (statsTotalText != null)
+            statsTotalText.gameObject.SetActive(false);
+    }
+
+    // The real per-category top-3 tables (photo slots included), one at a
+    // time — shown once, right after the photo, before returning to the
+    // start screen (which has its own copy of these same tables).
+    private IEnumerator ShowLeaderboardTables()
+    {
+        if (leaderboardRoot != null)
+            leaderboardRoot.SetActive(true);
+
+        try
+        {
+            foreach (var page in leaderboardPages)
+            {
+                if (page == null)
+                    continue;
+
+                page.SetActive(true);
+                yield return StartCoroutine(WaitPage(achievementsPageDuration));
+                page.SetActive(false);
+
+                if (_skipToEnd)
+                    yield break;
+            }
+        }
+        finally
+        {
+            if (leaderboardRoot != null)
+                leaderboardRoot.SetActive(false);
+        }
+    }
+
+    // Any button/gesture press during this wait sets _skipToEnd — every
+    // remaining stage of the post-win recap (RunSequence) checks that and
+    // bails straight to the reload instead of waiting out the rest, so an
+    // arcade cabinet returns to attract-mode promptly for the next player.
+    private IEnumerator WaitPage(float duration)
+    {
+        float t = 0f;
+        while (t < duration)
+        {
+            if (AnyInputPressed())
+            {
+                _skipToEnd = true;
+                yield break;
+            }
+            t += Time.deltaTime;
+            yield return null;
+        }
+    }
+
+    // The actual player-facing control keys (PlayerController's arrow keys,
+    // GestureInput's WASD stand-ins, Space/Return for start/confirm) — NOT
+    // Input.anyKeyDown, which used to fire on literally any key including
+    // OS-level shortcuts (e.g. a screenshot key combo) that have nothing to
+    // do with the game, skipping the whole recap by accident. F1/Q (help
+    // panel toggle) are deliberately excluded too, same reasoning.
+    private static readonly KeyCode[] SkipKeys =
+    {
+        KeyCode.LeftArrow, KeyCode.RightArrow, KeyCode.UpArrow, KeyCode.DownArrow,
+        KeyCode.W, KeyCode.A, KeyCode.S, KeyCode.D,
+        KeyCode.Space, KeyCode.Return,
+    };
 
     private static bool AnyInputPressed()
     {
-        if (Input.anyKeyDown)
-            return true;
+        foreach (var key in SkipKeys)
+            if (Input.GetKeyDown(key))
+                return true;
 
         foreach (var gesture in FindObjectsOfType<GestureInput>())
         {
@@ -295,13 +517,16 @@ public class WinSequence : MonoBehaviour
     // being stuck repeating instead of finishing.
     private IEnumerator RevealRecords(List<HighScoreManager.NewRecord> records)
     {
-        recordText.gameObject.SetActive(true);
+        if (recordRowRoot != null)
+            recordRowRoot.SetActive(true);
         foreach (var record in records)
         {
-            recordText.text = "НОВЫЙ РЕКОРД!\n" + record.CategoryName + " — место " + record.Rank + " из 10";
+            if (recordText != null)
+                recordText.text = "НОВЫЙ РЕКОРД: " + record.CategoryName + " — " + record.Rank + " МЕСТО ИЗ 10";
             yield return new WaitForSeconds(recordRevealDuration);
         }
-        recordText.gameObject.SetActive(false);
+        if (recordRowRoot != null)
+            recordRowRoot.SetActive(false);
 
         if (PlayerPhotoCapture.Instance != null && records.Count > 0)
         {

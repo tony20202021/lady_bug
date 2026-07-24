@@ -128,9 +128,33 @@ public class HighScoreManager : MonoBehaviour
     public string GetCategoryName(int category) => CategoryNames[category];
     public string FormatEntryValue(int category, float value) => FormatValue(category, value);
 
+    // True once any category has at least one real entry — rank 1 (index 0)
+    // is always the best entry in a category (TryInsert keeps each array
+    // sorted), so checking just that slot is enough, no need to scan all
+    // 10. Used to keep the live in-game "ТОП" panel hidden entirely on a
+    // fresh save with zero records anywhere instead of showing an empty
+    // gray box with nothing but "--" in it. Only the live panel does this —
+    // the start-screen carousel shows every category's table regardless,
+    // "--" placeholders included, same as its other static pages.
+    public bool HasAnyRecordAnywhere()
+    {
+        for (int c = 0; c < 4; c++)
+            if (_values[c][0] > 0f)
+                return true;
+        return false;
+    }
+
     // Returns the 1-based rank the value landed at, or 0 if it didn't make the top 10.
     private int TryInsert(int category, float value)
     {
+        // A run that scored/moved/tricked nothing at all isn't a record of
+        // anything, even into an otherwise-empty board — without this, a
+        // 0-trick run could rank #1 in ТРЮКИ on a fresh save and trigger a
+        // "NEW RECORD" reveal for it, matching FormatValue's own <=0 ==
+        // "no real entry" ("--") treatment.
+        if (value <= 0f)
+            return 0;
+
         float[] arr = _values[category];
         string[] photos = _photoPaths[category];
         bool higherBetter = HigherIsBetter[category];
@@ -181,7 +205,7 @@ public class HighScoreManager : MonoBehaviour
 
         if (titleText != null && cat != _displayedCategory)
         {
-            titleText.text = "ТОП-3: " + CategoryNames[cat];
+            titleText.text = "ТОП: " + CategoryNames[cat];
             _displayedCategory = cat;
         }
 
@@ -243,6 +267,10 @@ public class HighScoreManager : MonoBehaviour
                 return string.Format("{0:00}:{1:00}", minutes, secs);
             case Category.Speed:
                 return string.Format("{0:0.0} км/ч", value);
+            case Category.Score:
+                return Mathf.RoundToInt(value) + " очков";
+            case Category.Tricks:
+                return Mathf.RoundToInt(value) + " шт";
             default:
                 return Mathf.RoundToInt(value).ToString();
         }

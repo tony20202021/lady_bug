@@ -4,13 +4,20 @@ public class SideScenerySpawner : MonoBehaviour
 {
     [SerializeField] private GameObject[] prefabs;
     [SerializeField] private float sideOffset = 6f; // clearance from the road edge to the object's near edge
-    [SerializeField] private float maxExtraOffset = 20f; // random extra distance beyond that, so objects don't all line up at the same distance
+    [SerializeField] private float maxExtraOffset = 45f; // random extra distance beyond that, so objects don't all line up at the same distance
     [SerializeField] private float spawnZ = 70f;
-    [SerializeField] private float minInterval = 1.5f;
-    [SerializeField] private float maxInterval = 3f;
+    // World units between spawns, not seconds — a fixed real-time interval
+    // meant the world-space gap between objects was speed × interval, so at
+    // low speed they bunched up close together (and stayed on screen a long
+    // time, reading as "constant clutter"), while at high speed the gap
+    // stretched out far enough that long empty stretches of roadside were
+    // common. Distance-based keeps the spacing (and so the visual density)
+    // roughly constant regardless of current speed.
+    [SerializeField] private float minSpawnDistance = 20f;
+    [SerializeField] private float maxSpawnDistance = 45f;
 
-    private float _timer;
-    private float _nextInterval;
+    private float _distanceSinceLastSpawn;
+    private float _nextSpawnDistance;
 
     private void Start()
     {
@@ -23,10 +30,10 @@ public class SideScenerySpawner : MonoBehaviour
         if (speed <= 0f)
             return; // road isn't moving — nothing should appear yet
 
-        _timer += Time.deltaTime;
-        if (_timer >= _nextInterval)
+        _distanceSinceLastSpawn += speed * Time.deltaTime;
+        if (_distanceSinceLastSpawn >= _nextSpawnDistance)
         {
-            _timer = 0f;
+            _distanceSinceLastSpawn = 0f;
             Spawn();
             ScheduleNext();
         }
@@ -34,16 +41,25 @@ public class SideScenerySpawner : MonoBehaviour
 
     private void ScheduleNext()
     {
-        _nextInterval = Random.Range(minInterval, maxInterval);
+        _nextSpawnDistance = Random.Range(minSpawnDistance, maxSpawnDistance);
     }
 
+    // One object on EACH side every tick (not a coin-flip for a single
+    // side) — a coin-flip let one side go quiet for several spawns in a
+    // row while the other kept getting objects, leaving empty stretches of
+    // roadside.
     private void Spawn()
     {
         if (prefabs == null || prefabs.Length == 0)
             return;
 
+        SpawnSide(-1f);
+        SpawnSide(1f);
+    }
+
+    private void SpawnSide(float side)
+    {
         GameObject prefab = prefabs[Random.Range(0, prefabs.Length)];
-        float side = Random.value < 0.5f ? -1f : 1f;
 
         // Wide sprites (like the pine forest) need more clearance than
         // narrow ones (like the palm tree) or they'll poke onto the road —

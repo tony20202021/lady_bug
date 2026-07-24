@@ -21,6 +21,11 @@ public class AchievementStats : MonoBehaviour
 
     public int RingTricks { get; private set; }
     public int ArchTricks { get; private set; }
+    public int LeapfrogTricks { get; private set; }
+    public int SyncTricks { get; private set; }
+    public int HoverTricks { get; private set; }
+    public int BigRingTricks { get; private set; }
+    public int InfinityTricks { get; private set; }
 
     private void Awake()
     {
@@ -58,6 +63,16 @@ public class AchievementStats : MonoBehaviour
             RingTricks++;
         else if (trickName == "АРКА")
             ArchTricks++;
+        else if (trickName == "ЧЕХАРДА")
+            LeapfrogTricks++;
+        else if (trickName == "СИНХРОН")
+            SyncTricks++;
+        else if (trickName == "ЗАВИСАНИЕ")
+            HoverTricks++;
+        else if (trickName == "БОЛЬШОЕ КОЛЬЦО")
+            BigRingTricks++;
+        else if (trickName == "БЕСКОНЕЧНОСТЬ")
+            InfinityTricks++;
     }
 
     private static bool IsFlowerName(string name)

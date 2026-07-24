@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 public class PlayerController : MonoBehaviour
@@ -27,6 +28,15 @@ public class PlayerController : MonoBehaviour
 
     [SerializeField] private float heightChangeSpeed = 8f;
 
+    // Small lean into a lane change — up to laneTiltAngle degrees, eased
+    // in/out at laneTiltSpeed (degrees/sec) based on actual per-frame
+    // lateral movement, not just "a key is held" (so it eases back out on
+    // its own as MoveTowards approaches the target lane, same as real
+    // cornering lean rather than a hard on/off toggle).
+    [SerializeField] private float laneTiltAngle = 12f;
+    [SerializeField] private float laneTiltSpeed = 90f;
+    private float _currentTilt;
+
     [SerializeField] private float tumbleDuration = 0.8f;
     [SerializeField] private float tumbleHopHeight = 1f;
     [SerializeField] private float blinkDuration = 1.5f;
@@ -52,6 +62,45 @@ public class PlayerController : MonoBehaviour
     private const float RingTrickWindow = 0.5f;
     private const float RingTrickCooldown = 0.3f;
 
+    // Shared move-history log, used by the 4 multi-step tricks below
+    // (ЧЕХАРДА, СИНХРОН, БОЛЬШОЕ КОЛЬЦО, БЕСКОНЕЧНОСТЬ) — each is a specific
+    // shape traced across a few consecutive lane changes, so instead of a
+    // bespoke little state machine per trick, every MoveLane call appends
+    // one entry here and each detector just pattern-matches the tail of it.
+    private struct MoveEvent
+    {
+        public float time;
+        public int fromLane;
+        public int toLane;
+        public bool airborne; // this player's own IsAirborne at the moment of this specific step
+    }
+    private readonly List<MoveEvent> _moveHistory = new List<MoveEvent>();
+    private const float MoveHistoryWindow = 6f;
+
+    // ЧЕХАРДА (leapfrog) bookkeeping — set on the "top" player (the one
+    // Bouncing on a partner in an edge lane) the moment they dismount to
+    // the middle lane, so the "bottom" partner's own subsequent 2-lane
+    // airborne hop can recognize what it's completing.
+    private int _stackDismountFromLane = -1;
+    private float _stackDismountTime = -999f;
+    private static float _lastLeapfrogTrickTime = -999f;
+    private const float LeapfrogTrickCooldown = 0.3f;
+
+    private static float _lastSyncTrickTime = -999f;
+    private const float SyncTrickCooldown = 0.3f;
+    private static float _lastBigRingTrickTime = -999f;
+    private const float BigRingTrickCooldown = 0.3f;
+    private static float _lastInfinityTrickTime = -999f;
+    private const float InfinityTrickCooldown = 0.3f;
+
+    // ЗАВИСАНИЕ (hover) — seconds since this player's base last actually
+    // touched the road, independent of _verticalState's name for it (which
+    // reads Normal for a brief moment while a just-ended jump is still
+    // easing back down to the road — see UpdateHoverTrickTracking).
+    private float _noGroundTimer;
+    private const float HoverTrickDuration = 5f;
+    private static bool _hoverTrickAwardedThisStreak;
+
     // Bouncing = landed mid-air on top of another (grounded) player sharing
     // the lane — self-contained oscillation, never touches Jumping, so it
     // can't be cancelled by jump-key release like a normal jump can.
@@ -65,16 +114,21 @@ public class PlayerController : MonoBehaviour
     private float _crashBaseY; // ground reference for the tumble hop — the height we were at when we got hit, not always the road
     private Renderer _spriteRenderer;
 
-    // When present and enabled (controller mode = gesture simulator/sensors),
-    // these stand in for the usual key reads — see the wrapper methods below.
+    // When present and enabled (controller mode = gesture simulator/sensors,
+    // or — for player 2 only — a physical joystick), these stand in for the
+    // usual key reads — see the wrapper methods below. Gesture takes
+    // priority if somehow both were left enabled at once.
     private GestureInput _gestureInput;
+    private JoystickInput _joystickInput;
     private bool GestureActive => _gestureInput != null && _gestureInput.enabled;
+    private bool JoystickActive => _joystickInput != null && _joystickInput.enabled;
 
     public int CurrentLane => _currentLane;
     public int LaneCount => laneCount;
     public int HomeLane => startLane;
     public bool IsAirborne => _verticalState == VerticalState.Jumping || _verticalState == VerticalState.Bouncing;
     public bool IsDucking => _verticalState == VerticalState.Ducking;
+    public bool IsBouncing => _verticalState == VerticalState.Bouncing;
     public float TopY => transform.position.y + transform.localScale.y / 2f;
 
     // Called by WinSequence right before it disables this component and
@@ -109,18 +163,21 @@ public class PlayerController : MonoBehaviour
             _spriteRenderer = sprite.GetComponent<Renderer>();
 
         _gestureInput = GetComponent<GestureInput>();
+        _joystickInput = GetComponent<JoystickInput>();
     }
 
-    // Gesture-mode stand-ins for the usual key reads — fall straight through
-    // to plain keyboard reads whenever gesture mode isn't active for this
-    // player (i.e. keyboard controller selected — behaves exactly as before).
-    private bool UpKeyDown() => GestureActive ? _gestureInput.JumpDown : Input.GetKeyDown(upKey);
-    private bool UpKeyHeld() => GestureActive ? _gestureInput.JumpHeld : Input.GetKey(upKey);
-    private bool DownKeyHeld() => GestureActive ? _gestureInput.DuckHeld : Input.GetKey(downKey);
-    private bool LeftKeyDown() => GestureActive ? _gestureInput.LeanLeftDown : Input.GetKeyDown(leftKey);
-    private bool LeftKeyHeld() => GestureActive ? _gestureInput.LeanLeftHeld : Input.GetKey(leftKey);
-    private bool RightKeyDown() => GestureActive ? _gestureInput.LeanRightDown : Input.GetKeyDown(rightKey);
-    private bool RightKeyHeld() => GestureActive ? _gestureInput.LeanRightHeld : Input.GetKey(rightKey);
+    // Gesture/joystick-mode stand-ins for the usual key reads — fall
+    // straight through to plain keyboard reads whenever neither is active
+    // for this player (i.e. keyboard controller selected — behaves exactly
+    // as before). A joystick's 4 directions are already discrete presses,
+    // so they slot in directly, the same shape the keyboard reads use.
+    private bool UpKeyDown() => GestureActive ? _gestureInput.JumpDown : JoystickActive ? _joystickInput.UpDown : Input.GetKeyDown(upKey);
+    private bool UpKeyHeld() => GestureActive ? _gestureInput.JumpHeld : JoystickActive ? _joystickInput.UpHeld : Input.GetKey(upKey);
+    private bool DownKeyHeld() => GestureActive ? _gestureInput.DuckHeld : JoystickActive ? _joystickInput.DownHeld : Input.GetKey(downKey);
+    private bool LeftKeyDown() => GestureActive ? _gestureInput.LeanLeftDown : JoystickActive ? _joystickInput.LeftDown : Input.GetKeyDown(leftKey);
+    private bool LeftKeyHeld() => GestureActive ? _gestureInput.LeanLeftHeld : JoystickActive ? _joystickInput.LeftHeld : Input.GetKey(leftKey);
+    private bool RightKeyDown() => GestureActive ? _gestureInput.LeanRightDown : JoystickActive ? _joystickInput.RightDown : Input.GetKeyDown(rightKey);
+    private bool RightKeyHeld() => GestureActive ? _gestureInput.LeanRightHeld : JoystickActive ? _joystickInput.RightHeld : Input.GetKey(rightKey);
 
     private void Update()
     {
@@ -137,6 +194,7 @@ public class PlayerController : MonoBehaviour
         HandleInput();
         UpdateLanePosition();
         UpdateVerticalState();
+        UpdateHoverTrickTracking();
     }
 
     private void OnTriggerEnter(Collider other)
@@ -225,6 +283,16 @@ public class PlayerController : MonoBehaviour
         return null;
     }
 
+    private bool HasAirbornePartner()
+    {
+        foreach (var other in FindObjectsOfType<PlayerController>())
+        {
+            if (other != this && other.IsAirborne)
+                return true;
+        }
+        return false;
+    }
+
     private bool IsSupportingBouncingPartner()
     {
         foreach (var other in FindObjectsOfType<PlayerController>())
@@ -264,6 +332,7 @@ public class PlayerController : MonoBehaviour
         scale.y = _baseScaleY;
         transform.localScale = scale;
         transform.rotation = Quaternion.identity;
+        _currentTilt = 0f; // matches the visual reset above — otherwise UpdateLanePosition would jump straight back to whatever lean was mid-flight when this hit
 
         if (SpeedController.Instance != null)
             SpeedController.Instance.HalveSpeed();
@@ -349,31 +418,33 @@ public class PlayerController : MonoBehaviour
         }
         else if (_verticalState == VerticalState.Jumping)
         {
-            if (GestureActive)
-            {
-                // Gesture jump is committed for the full jumpDuration (the
-                // timer in UpdateVerticalState brings it down on its own) —
-                // releasing the "both hands up" gesture doesn't cut it short
-                // like a keyboard tap does, since "both up" and a lean ("one
-                // up, one down") are physically different hand shapes: if
-                // release-to-land applied here, a player could never jump
-                // and then also shift lanes mid-air. Ducking mid-air (both
-                // hands down) still ends it early on purpose — an explicit
-                // "come down now".
-                if (DownKeyHeld())
-                    EndJump();
-            }
-            // Held up to the jumpDuration cap (enforced in UpdateVerticalState);
-            // release early and it comes down immediately — unless someone's
-            // still grounded in this lane, then it bounces off them instead.
-            // Jumps are normally a tap, so this fires almost every time —
-            // it must go through the same occupant check as the timer expiry.
-            // A release before minJumpCommitDuration has played is ignored
-            // outright, so even the quickest tap still leaves enough airtime
-            // to also press a diagonal for a mid-air lane change.
-            else if (!UpKeyHeld() && jumpDuration - _actionTimer >= minJumpCommitDuration)
+            // Explicit "come down now" — applies the instant Down is
+            // pressed/held, in every input mode alike, not gated behind the
+            // commit-time check below. Previously only gesture mode had
+            // this (see the old comment this replaced); keyboard/joystick
+            // ignored Down entirely while airborne and just sat through the
+            // jump timer, which read as "nothing happens" when a player
+            // tried to duck out of a jump early.
+            if (DownKeyHeld())
             {
                 EndJump();
+            }
+            else if (!GestureActive)
+            {
+                // Held up to the jumpDuration cap (enforced in UpdateVerticalState);
+                // release early and it comes down immediately — unless someone's
+                // still grounded in this lane, then it bounces off them instead.
+                // Jumps are normally a tap, so this fires almost every time —
+                // it must go through the same occupant check as the timer expiry.
+                // A release before minJumpCommitDuration has played is ignored
+                // outright, so even the quickest tap still leaves enough airtime
+                // to also press a diagonal for a mid-air lane change. Gesture
+                // mode skips this branch on purpose — a committed "both hands
+                // up" jump only ends via Down (above) or the timer, releasing
+                // the gesture itself doesn't cut it short (a player needs to be
+                // able to stop flapping mid-air without landing instantly).
+                if (!UpKeyHeld() && jumpDuration - _actionTimer >= minJumpCommitDuration)
+                    EndJump();
             }
         }
     }
@@ -437,7 +508,251 @@ public class PlayerController : MonoBehaviour
         _lastMoveTime = Time.time;
         _lastMoveWasAirborne = IsAirborne;
 
+        _moveHistory.Add(new MoveEvent { time = Time.time, fromLane = previousLane, toLane = target, airborne = IsAirborne });
+        _moveHistory.RemoveAll(e => Time.time - e.time > MoveHistoryWindow);
+
+        if (_verticalState == VerticalState.Bouncing)
+            TryRecordStackDismount(previousLane, target);
+
         TryDetectRingTrick();
+        TryDetectLeapfrogTrick();
+        TryDetectSyncTrick();
+        TryDetectBigRingTrick();
+        TryDetectInfinityTrick();
+    }
+
+    // ЧЕХАРДА (leapfrog) — top half: the Bouncing rider dismounts an edge
+    // lane straight to the middle one, freeing the partner underneath them
+    // to complete the trick (see TryDetectLeapfrogTrick).
+    private void TryRecordStackDismount(int from, int to)
+    {
+        bool wasEdge = from == 0 || from == laneCount - 1;
+        if (wasEdge && to == laneCount / 2)
+        {
+            _stackDismountFromLane = from;
+            _stackDismountTime = Time.time;
+        }
+    }
+
+    // ЧЕХАРДА (leapfrog) — bottom half: freed from supporting the rider
+    // (see above), this player jumps and clears both remaining lanes in one
+    // continuous airborne hop — two same-direction moves back to back,
+    // never landing in between — from the edge lane the stack was just in,
+    // straight over to the opposite edge.
+    private void TryDetectLeapfrogTrick()
+    {
+        if (Time.time - _lastLeapfrogTrickTime < LeapfrogTrickCooldown)
+            return;
+        if (_moveHistory.Count < 2)
+            return;
+
+        MoveEvent last = _moveHistory[_moveHistory.Count - 1];
+        MoveEvent prev = _moveHistory[_moveHistory.Count - 2];
+
+        bool bothAirborne = last.airborne && prev.airborne;
+        bool sameDirection = (last.toLane - last.fromLane) == (prev.toLane - prev.fromLane);
+        bool spansBothEdges = (prev.fromLane == 0 && last.toLane == laneCount - 1) ||
+                               (prev.fromLane == laneCount - 1 && last.toLane == 0);
+        bool closeInTime = last.time - prev.time < 0.6f;
+        if (!(bothAirborne && sameDirection && spansBothEdges && closeInTime))
+            return;
+
+        foreach (var other in FindObjectsOfType<PlayerController>())
+        {
+            if (other == this)
+                continue;
+
+            bool dismountMatches = other._stackDismountFromLane == prev.fromLane &&
+                Time.time - other._stackDismountTime < 3f;
+            if (dismountMatches)
+            {
+                _lastLeapfrogTrickTime = Time.time;
+                if (TricksManager.Instance != null)
+                    TricksManager.Instance.SpawnPopup("ЧЕХАРДА", Midpoint(other));
+                return;
+            }
+        }
+    }
+
+    // СИНХРОН — the grounded "base" of a stack (Bouncing rider still on
+    // their back) does the same clean 2-lane sweep ЧЕХАРДА's bottom half
+    // does, except this time the rider stays put, riding along instead of
+    // dismounting — confirmed by finding them still specifically Bouncing
+    // (not just any airborne state — a coincidental solo jump landing in
+    // the same lane at the same moment shouldn't count) and co-located
+    // right after this move completes.
+    private void TryDetectSyncTrick()
+    {
+        if (Time.time - _lastSyncTrickTime < SyncTrickCooldown)
+            return;
+        if (IsAirborne) // only the grounded base half of the stack checks this
+            return;
+        if (_moveHistory.Count < 2)
+            return;
+
+        MoveEvent last = _moveHistory[_moveHistory.Count - 1];
+        MoveEvent prev = _moveHistory[_moveHistory.Count - 2];
+
+        bool bothGrounded = !last.airborne && !prev.airborne;
+        bool sameDirection = (last.toLane - last.fromLane) == (prev.toLane - prev.fromLane);
+        bool spansBothEdges = (prev.fromLane == 0 && last.toLane == laneCount - 1) ||
+                               (prev.fromLane == laneCount - 1 && last.toLane == 0);
+        bool closeInTime = last.time - prev.time < 0.6f;
+        if (!(bothGrounded && sameDirection && spansBothEdges && closeInTime))
+            return;
+
+        foreach (var other in FindObjectsOfType<PlayerController>())
+        {
+            if (other == this)
+                continue;
+
+            if (other.IsBouncing && other.CurrentLane == CurrentLane)
+            {
+                _lastSyncTrickTime = Time.time;
+                if (TricksManager.Instance != null)
+                    TricksManager.Instance.SpawnPopup("СИНХРОН", Midpoint(other));
+                return;
+            }
+        }
+    }
+
+    // БОЛЬШОЕ КОЛЬЦО — this player's own last 4 lane moves form a there-
+    // and-back loop across all 3 lanes: 2 grounded steps sweeping edge to
+    // edge one way, then 2 airborne steps sweeping back the other way.
+    private bool HasBigRingPattern(out float endTime)
+    {
+        endTime = 0f;
+        if (_moveHistory.Count < 4)
+            return false;
+
+        int n = _moveHistory.Count;
+        MoveEvent g1 = _moveHistory[n - 4];
+        MoveEvent g2 = _moveHistory[n - 3];
+        MoveEvent a1 = _moveHistory[n - 2];
+        MoveEvent a2 = _moveHistory[n - 1];
+
+        bool groundLeg = !g1.airborne && !g2.airborne;
+        bool airLeg = a1.airborne && a2.airborne;
+        bool chained = g1.toLane == g2.fromLane && a1.fromLane == g2.toLane && a2.fromLane == a1.toLane;
+        bool groundSweep = (g1.fromLane == 0 && g2.toLane == laneCount - 1) || (g1.fromLane == laneCount - 1 && g2.toLane == 0);
+        bool airSweep = a2.toLane == g1.fromLane; // back where it started
+        bool closeInTime = a2.time - g1.time < 3f;
+
+        if (groundLeg && airLeg && chained && groundSweep && airSweep && closeInTime)
+        {
+            endTime = a2.time;
+            return true;
+        }
+        return false;
+    }
+
+    private void TryDetectBigRingTrick()
+    {
+        if (Time.time - _lastBigRingTrickTime < BigRingTrickCooldown)
+            return;
+        if (!HasBigRingPattern(out float myEnd))
+            return;
+
+        foreach (var other in FindObjectsOfType<PlayerController>())
+        {
+            if (other == this)
+                continue;
+
+            if (other.HasBigRingPattern(out float otherEnd) && Mathf.Abs(myEnd - otherEnd) < 2f)
+            {
+                _lastBigRingTrickTime = Time.time;
+                if (TricksManager.Instance != null)
+                    TricksManager.Instance.SpawnPopup("БОЛЬШОЕ КОЛЬЦО", Midpoint(other));
+                return;
+            }
+        }
+    }
+
+    // БЕСКОНЕЧНОСТЬ — from the middle lane, out to one edge and back
+    // (grounded out, airborne back — a jump bridges the two), then out to
+    // the other edge and back the same way — a figure-8 traced across the
+    // three lanes.
+    private bool HasInfinityPattern(out float endTime)
+    {
+        endTime = 0f;
+        int mid = laneCount / 2;
+        if (_moveHistory.Count < 4)
+            return false;
+
+        int n = _moveHistory.Count;
+        MoveEvent g1 = _moveHistory[n - 4];
+        MoveEvent a1 = _moveHistory[n - 3];
+        MoveEvent g2 = _moveHistory[n - 2];
+        MoveEvent a2 = _moveHistory[n - 1];
+
+        bool leg1 = !g1.airborne && g1.fromLane == mid && (g1.toLane == 0 || g1.toLane == laneCount - 1);
+        bool ret1 = a1.airborne && a1.fromLane == g1.toLane && a1.toLane == mid;
+        bool leg2 = !g2.airborne && g2.fromLane == mid && (g2.toLane == 0 || g2.toLane == laneCount - 1) && g2.toLane != g1.toLane;
+        bool ret2 = a2.airborne && a2.fromLane == g2.toLane && a2.toLane == mid;
+        bool closeInTime = a2.time - g1.time < 6f;
+
+        if (leg1 && ret1 && leg2 && ret2 && closeInTime)
+        {
+            endTime = a2.time;
+            return true;
+        }
+        return false;
+    }
+
+    private void TryDetectInfinityTrick()
+    {
+        if (Time.time - _lastInfinityTrickTime < InfinityTrickCooldown)
+            return;
+        if (!HasInfinityPattern(out float myEnd))
+            return;
+
+        foreach (var other in FindObjectsOfType<PlayerController>())
+        {
+            if (other == this)
+                continue;
+
+            if (other.HasInfinityPattern(out float otherEnd) && Mathf.Abs(myEnd - otherEnd) < 4f)
+            {
+                _lastInfinityTrickTime = Time.time;
+                if (TricksManager.Instance != null)
+                    TricksManager.Instance.SpawnPopup("БЕСКОНЕЧНОСТЬ", Midpoint(other));
+                return;
+            }
+        }
+    }
+
+    // ЗАВИСАНИЕ — both players airborne at once, continuously, without
+    // either one's base ever touching the road again, for
+    // HoverTrickDuration straight.
+    private void UpdateHoverTrickTracking()
+    {
+        bool baseOnGround = _crashState == CrashState.None &&
+            Mathf.Abs((transform.position.y - transform.localScale.y / 2f) - _baseGroundY) < 0.02f;
+        _noGroundTimer = baseOnGround ? 0f : _noGroundTimer + Time.deltaTime;
+
+        if (_hoverTrickAwardedThisStreak)
+        {
+            if (baseOnGround)
+                _hoverTrickAwardedThisStreak = false;
+            return;
+        }
+
+        if (_noGroundTimer < HoverTrickDuration)
+            return;
+
+        foreach (var other in FindObjectsOfType<PlayerController>())
+        {
+            if (other == this)
+                continue;
+
+            if (other._noGroundTimer >= HoverTrickDuration)
+            {
+                _hoverTrickAwardedThisStreak = true;
+                if (TricksManager.Instance != null)
+                    TricksManager.Instance.SpawnPopup("ЗАВИСАНИЕ", Midpoint(other));
+                return;
+            }
+        }
     }
 
     // "Ring" trick: two players cross through each other's lanes at once —
@@ -517,8 +832,18 @@ public class PlayerController : MonoBehaviour
     {
         float targetX = (_currentLane - (laneCount - 1) / 2f) * laneWidth;
         Vector3 pos = transform.position;
+        float previousX = pos.x;
         pos.x = Mathf.MoveTowards(pos.x, targetX, laneChangeSpeed * Time.deltaTime);
         transform.position = pos;
+
+        // Lean toward whichever direction actually moved this frame — zero
+        // once MoveTowards reaches the target lane and dx drops to zero, so
+        // this eases back out on its own without a separate "done moving"
+        // check.
+        float dx = pos.x - previousX;
+        float targetTilt = Mathf.Abs(dx) > 0.0001f ? -Mathf.Sign(dx) * laneTiltAngle : 0f;
+        _currentTilt = Mathf.MoveTowards(_currentTilt, targetTilt, laneTiltSpeed * Time.deltaTime);
+        transform.rotation = Quaternion.Euler(0f, 0f, _currentTilt);
     }
 
     private void UpdateVerticalState()
@@ -571,7 +896,20 @@ public class PlayerController : MonoBehaviour
         {
             _actionTimer -= Time.deltaTime;
             if (_actionTimer <= 0f)
-                EndJump();
+            {
+                // Holding Up through the timeout re-arms straight into
+                // another jump instead of landing — but only once a
+                // partner is ALSO already airborne, so a solo jump is
+                // never affected: it always still lands right at
+                // jumpDuration exactly as before. This is what lets two
+                // players chain-hover together for ЗАВИСАНИЕ without ever
+                // touching the road (see UpdateHoverTrickTracking); a lone
+                // player holding Up gets nothing extra from it.
+                if (UpKeyHeld() && HasAirbornePartner())
+                    _actionTimer = jumpDuration;
+                else
+                    EndJump();
+            }
         }
         else if (_verticalState == VerticalState.Bouncing)
         {

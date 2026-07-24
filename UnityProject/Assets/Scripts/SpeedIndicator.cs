@@ -1,3 +1,4 @@
+using System.Collections;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -6,13 +7,24 @@ public class SpeedIndicator : MonoBehaviour
     public static SpeedIndicator Instance { get; private set; }
 
     [SerializeField] private Text speedText;
-    [SerializeField] private RectTransform popupParent;
-    [SerializeField] private RectTransform counterAnchor;
-    [SerializeField] private GameObject panelRoot;
+    // Dedicated gear panel (see SceneSetup.CreateScoreUI, stacked right
+    // above the speed panel) — just the current gear's digit and the
+    // lever icon, no longer duplicated inside speedText itself.
+    [SerializeField] private Text gearDigitText;
+    // Persistent gear-lever HUD icon — always visible, not spawned/
+    // destroyed per shift. PlayGearShift just flickers it through a
+    // random run of leverFrames and settles back on the resting frame
+    // (leverFrames[0]).
+    [SerializeField] private RawImage leverImage;
+    [SerializeField] private Texture2D[] leverFrames;
+
+    private Coroutine _shiftRoutine;
 
     private void Awake()
     {
         Instance = this;
+        if (leverImage != null && leverFrames != null && leverFrames.Length > 0)
+            leverImage.texture = leverFrames[0];
     }
 
     private void Update()
@@ -24,47 +36,55 @@ public class SpeedIndicator : MonoBehaviour
 
         // The win-boost climbs speed without limit purely for the "flying
         // off" visual — a number racing into the thousands isn't useful
-        // information, so hide the whole panel for that stretch instead.
-        if (panelRoot != null)
-            panelRoot.SetActive(!sc.IsWinBoosting);
+        // information, so just stop updating the readout for that stretch
+        // instead of hiding the panel (which read as it disappearing then
+        // popping back once boosting ended) — it freezes on the last real
+        // value instead.
         if (sc.IsWinBoosting)
             return;
 
-        speedText.text = string.Format("{0:0.0} км/ч\nпередача {1}", sc.CurrentSpeed, sc.Gear);
+        speedText.text = string.Format("{0:0.0} км/ч", sc.CurrentSpeed);
+        if (gearDigitText != null)
+            gearDigitText.text = sc.Gear.ToString();
     }
 
-    // Spawns a "ПЕРЕКЛЮЧЕНИЕ НА N ПЕРЕДАЧУ" popup that flies from screen
-    // centre to this panel — mirrors ScoreManager/TricksManager's popups,
-    // but purely cosmetic (the gear itself already changed the instant it
-    // did, nothing left to apply on arrival).
-    public void SpawnGearPopup(int gear)
+    // Replaces the old plain "ПЕРЕКЛЮЧЕНИЕ НА N ПЕРЕДАЧУ" text popup — the
+    // lever icon stays on screen at all times now, this just plays its
+    // shift flicker right where it already sits beside the speed readout,
+    // instead of spawning/flying a separate banner across the screen.
+    public void PlayGearShift()
     {
-        if (popupParent == null || counterAnchor == null)
+        if (leverImage == null || leverFrames == null || leverFrames.Length == 0)
             return;
 
-        var go = new GameObject("GearPopup");
-        go.transform.SetParent(popupParent, false);
+        if (_shiftRoutine != null)
+            StopCoroutine(_shiftRoutine);
+        _shiftRoutine = StartCoroutine(PlayShiftAnimation());
+    }
 
-        Text text = go.AddComponent<Text>();
-        text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        text.fontSize = 48;
-        text.fontStyle = FontStyle.Bold;
-        text.alignment = TextAnchor.MiddleCenter;
-        text.text = "ПЕРЕКЛЮЧЕНИЕ\nНА " + gear + " ПЕРЕДАЧУ";
-        text.color = new Color(0.6f, 0.9f, 1f);
+    private IEnumerator PlayShiftAnimation()
+    {
+        const float frameDuration = 0.12f;
+        // A longer, livelier flicker than just stepping through the frames
+        // once — random picks (never the same frame twice in a row) instead
+        // of a fixed short sequence.
+        int count = Random.Range(5, 8);
+        int lastIndex = -1;
+        for (int i = 0; i < count; i++)
+        {
+            int index;
+            do
+            {
+                index = Random.Range(0, leverFrames.Length);
+            } while (leverFrames.Length > 1 && index == lastIndex);
+            lastIndex = index;
 
-        Outline outline = go.AddComponent<Outline>();
-        outline.effectColor = Color.black;
-        outline.effectDistance = new Vector2(3f, -3f);
+            if (leverFrames[index] != null)
+                leverImage.texture = leverFrames[index];
+            yield return new WaitForSeconds(frameDuration);
+        }
 
-        RectTransform rt = go.GetComponent<RectTransform>();
-        rt.anchorMin = new Vector2(0f, 0f);
-        rt.anchorMax = new Vector2(0f, 0f);
-        rt.pivot = new Vector2(0.5f, 0.5f);
-        rt.sizeDelta = new Vector2(520f, 130f);
-        rt.anchoredPosition = new Vector2(960f, 540f); // screen centre in the (0,0)-anchored 1920x1080 frame
-
-        GearPopup popup = go.AddComponent<GearPopup>();
-        popup.target = counterAnchor;
+        leverImage.texture = leverFrames[0];
+        _shiftRoutine = null;
     }
 }

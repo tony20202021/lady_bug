@@ -28,6 +28,7 @@ public class LaneWalker : MonoBehaviour
     private float _timer;
     private bool _moving;
     private Transform _sprite;
+    private float _baseSpriteScaleX;
 
     // Whether this creature is actively crossing into a neighbouring lane
     // right now — read by SnakePose to pick between its idle/moving sprite.
@@ -40,6 +41,11 @@ public class LaneWalker : MonoBehaviour
 
         Transform found = transform.Find("Sprite");
         _sprite = found != null ? found : transform;
+        // The source art (Dog/Cat/Crow/...) faces +X by default — flipping
+        // this sign to match whichever way a move actually goes (see
+        // TryStartMove) keeps the head leading instead of these creatures
+        // sometimes walking backward into a lane.
+        _baseSpriteScaleX = Mathf.Abs(_sprite.localScale.x);
     }
 
     private void Update()
@@ -81,6 +87,7 @@ public class LaneWalker : MonoBehaviour
 
         _lane = targetLane;
         _moving = true;
+        _sprite.localScale = new Vector3(_baseSpriteScaleX * direction, _sprite.localScale.y, _sprite.localScale.z);
     }
 
     private void ScheduleNext()
