@@ -129,6 +129,11 @@ public class PlayerController : MonoBehaviour
     public bool IsAirborne => _verticalState == VerticalState.Jumping || _verticalState == VerticalState.Bouncing;
     public bool IsDucking => _verticalState == VerticalState.Ducking;
     public bool IsBouncing => _verticalState == VerticalState.Bouncing;
+    // The same unified jump signal HandleInput itself reads (flap gesture,
+    // joystick up, or the plain up key, whichever this player is actually
+    // using) — exposed for WinSequence's "flap to keep going" prompt at the
+    // finish line, so it doesn't need its own separate control-scheme logic.
+    public bool IsJumpInputHeld => UpKeyHeld();
     public float TopY => transform.position.y + transform.localScale.y / 2f;
 
     // Called by WinSequence right before it disables this component and
@@ -140,6 +145,19 @@ public class PlayerController : MonoBehaviour
     public void ForceAirborneVisual()
     {
         _verticalState = VerticalState.Jumping;
+    }
+
+    // If the win condition landed mid-crash-blink (UpdateBlink toggles
+    // _spriteRenderer.enabled on/off on a timer, see CrashState.Blinking),
+    // the sprite could be off at that exact instant — disabling this whole
+    // component right after (WinSequence) freezes it there for good, since
+    // nothing else ever flips it back on. Same fix as the crash-tumble
+    // rotation freeze (see WinSequence's own comment on that): force it
+    // back to a normal, visible state before handing off.
+    public void ForceVisible()
+    {
+        if (_spriteRenderer != null)
+            _spriteRenderer.enabled = true;
     }
 
     // Used by the start screen to preview where a player will stand before
@@ -199,6 +217,17 @@ public class PlayerController : MonoBehaviour
 
     private void OnTriggerEnter(Collider other)
     {
+        // Unity still calls this on a disabled component as long as the
+        // GameObject and its Collider are active — disabling this script
+        // (StartScreenController on the pre-game menu, WinSequence during
+        // the fly-away) does stop input/Update, but NOT collisions, without
+        // this explicit check. That let the start screen's ambient good-
+        // pickup scroll (EntitySpawner's ordinary drift-by decoration,
+        // before the real game even begins) silently register as real
+        // collects in AchievementStats, inflating the end-of-run count.
+        if (!enabled)
+            return;
+
         if (_crashState != CrashState.None)
             return; // mid-hit-reaction — ignore further collisions
 
@@ -252,14 +281,14 @@ public class PlayerController : MonoBehaviour
                 if (SfxManager.Instance != null)
                     SfxManager.Instance.PlayBad(entity.gameObject.name);
                 if (AchievementStats.Instance != null)
-                    AchievementStats.Instance.RecordHit(entity.gameObject.name);
+                    AchievementStats.Instance.RecordHit(EntityIcon(entity));
             }
             else
             {
                 if (SfxManager.Instance != null)
                     SfxManager.Instance.PlayPickup();
                 if (AchievementStats.Instance != null)
-                    AchievementStats.Instance.RecordCollected(entity.gameObject.name);
+                    AchievementStats.Instance.RecordCollected(EntityIcon(entity));
             }
 
             Destroy(entity.gameObject);
@@ -270,7 +299,30 @@ public class PlayerController : MonoBehaviour
         if (SfxManager.Instance != null)
             SfxManager.Instance.PlayBad(entity.gameObject.name);
         if (AchievementStats.Instance != null)
-            AchievementStats.Instance.RecordHit(entity.gameObject.name);
+            AchievementStats.Instance.RecordHit(EntityIcon(entity));
+    }
+
+    // The exact texture the entity was actually shown with (every spawned
+    // good/bad prefab renders its sprite on a child named exactly "Sprite"
+    // via a Material, see SceneSetup.CreateEntityPrefab/CreateSnakePrefab/
+    // CreateGroundDecalPrefab/CreateArchPrefab — no SpriteRenderer
+    // involved) — reading it straight off the live object instead of
+    // matching its name against a fixed set of known categories means the
+    // post-win icon grid always shows the real picture, for any object
+    // type, without needing to be told about it in advance. Looked up by
+    // that exact child name rather than GetComponentInChildren<Renderer>()
+    // — bad objects also carry a "Shadow" child (AddStaticGroundShadow,
+    // added to the hierarchy before "Sprite") whose plain dark material has
+    // no texture of its own; GetComponentInChildren returned that one
+    // first, so every bad-object hit read back a null icon instead of the
+    // real picture.
+    private static Texture2D EntityIcon(MovingEntity entity)
+    {
+        Transform spriteChild = entity.transform.Find("Sprite");
+        Renderer renderer = spriteChild != null ? spriteChild.GetComponent<Renderer>() : null;
+        return renderer != null && renderer.sharedMaterial != null
+            ? renderer.sharedMaterial.mainTexture as Texture2D
+            : null;
     }
 
     private PlayerController FindPartnerInLane(int lane)

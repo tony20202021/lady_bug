@@ -10,9 +10,34 @@ public static class SceneSetup
     const float LaneWidth = 4f;
     const float RoadLength = 150f;
     const float RoadCenterZ = 1f;
-    const float DashPeriod = 4f;
+    // World units per dash+gap cycle — was 4 (dash+gap blurred into one
+    // solid line at higher speeds); doubled so both the dash and the gap
+    // stay individually readable further into the speed range.
+    const float DashPeriod = 8f;
+    // How many differently-distorted dash styles are stacked into one
+    // CreateDashTexture and cycled through along the road, instead of every
+    // dash looking identical — see CreateDashTexture/DrawDashBand.
+    const int DashVariantCount = 3;
+    // How many tinted/shifted copies of ShoulderTile.png are stacked into
+    // ShoulderTileVariants.png (see CreateRoadShoulder) — same trick as
+    // DashVariantCount, so the single baked stone/sand sprite doesn't repeat
+    // as one identical strip the whole length of the road.
+    const int ShoulderVariantCount = 3;
     const float ScrollSpeed = 10f;
     const float RoadTextureTileSize = 1.5f; // world units per asphalt-texture tile — must match CreateRoadTexture's mainTextureScale divisor
+    const float GrassTextureTileSize = 4f; // world units per side-grass-texture tile (Assets/Sprites/GrassTile.png)
+
+    // Every Text component in the game uses this instead of the engine's
+    // built-in LegacyRuntime.ttf — Comic CAT (Vitaly Lazarenko, 2019),
+    // downloaded from ffont.ru (the fonts-online.ru page the font was
+    // requested from gates its own download behind a CAPTCHA; same font,
+    // same author, no CAPTCHA on that mirror). Free for personal use per
+    // that mirror's listing — worth confirming the license directly with
+    // the author before any commercial release. Lives under Resources/ (not
+    // just Assets/) specifically so runtime code (ScoreManager/
+    // TricksManager's popups, built on the fly during play, not at scene-
+    // build time) can load it too via Resources.Load, the same as this does.
+    static Font GameFont => Resources.Load<Font>("Fonts/ComicCAT");
 
     [MenuItem("Tools/Rebuild Scene")]
     public static void BuildScene()
@@ -55,20 +80,22 @@ public static class SceneSetup
         CreateCamera(playerRight.transform);
         CreateRoad();
         CreateSideGround();
+        CreateRoadShoulder();
         CreateSpawner();
         CreateBigArchSpawner();
         CreateSideScenery();
         CreateSky();
         CreateAudio();
         CreateHelpScreen();
-        RectTransform lastStackedPanel = CreateScoreUI(out Canvas scoreCanvas, out GameObject topScoresPanel);
+        CreateScoreUI(out Canvas scoreCanvas);
         CreateWinSequence(scoreCanvas);
-        CreateTricksUI(lastStackedPanel);
+        CreateTricksUI();
         (GameObject gestureCanvasLeft, GameObject gestureCanvasRight) = CreateGestureIndicators(playerRight, playerLeft);
-        CreateStartScreen(playerRight, playerLeft, gestureCanvasLeft, gestureCanvasRight, topScoresPanel);
+        CreateStartScreen(playerRight, playerLeft, gestureCanvasLeft, gestureCanvasRight);
         CreatePauseDialog();
         CreateExitGesture();
         CreateIntroScreen();
+        CreateLoaderScreen();
         CreateScreenInfoLabel();
 
         System.IO.Directory.CreateDirectory("Assets/Scenes");
@@ -149,7 +176,7 @@ public static class SceneSetup
         var messageGo = new GameObject("Message");
         messageGo.transform.SetParent(canvasGo.transform, false);
         Text message = messageGo.AddComponent<Text>();
-        message.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        message.font = GameFont;
         message.fontSize = 56;
         message.fontStyle = FontStyle.Bold;
         message.alignment = TextAnchor.MiddleCenter;
@@ -172,19 +199,24 @@ public static class SceneSetup
         var smileGo = new GameObject("SmileText");
         smileGo.transform.SetParent(canvasGo.transform, false);
         Text smile = smileGo.AddComponent<Text>();
-        smile.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        smile.font = GameFont;
         smile.fontSize = 30;
         smile.fontStyle = FontStyle.Bold;
         smile.alignment = TextAnchor.MiddleCenter;
         smile.color = Color.white;
-        smile.text = "УЛЫБНИТЕСЬ — ВАС СНИМАЕТ КАМЕРА ДЛЯ ИСТОРИИ";
+        smile.text = "УЛЫБНИТЕСЬ\nВАС СНИМАЕТ КАМЕРА ДЛЯ ИСТОРИИ";
         smileGo.AddComponent<Outline>().effectColor = Color.black;
         RectTransform smileRt = smile.GetComponent<RectTransform>();
         smileRt.anchorMin = new Vector2(0.5f, 0.5f);
         smileRt.anchorMax = new Vector2(0.5f, 0.5f);
         smileRt.pivot = new Vector2(0.5f, 0.5f);
-        smileRt.sizeDelta = new Vector2(1200f, 50f);
-        smileRt.anchoredPosition = new Vector2(0f, 250f); // left as-is — message (below) pushed further up instead, so this doesn't crowd CameraPreview's own top edge any more than before
+        // Sits right on top of CameraPreview's own top edge (800x600 at
+        // y=-60, so its top is at 240) instead of floating above it with a
+        // gap — 2 lines now (was 1, split at the old em-dash) need the
+        // taller box. Narrower than the preview's own 800 width so it
+        // doesn't spill past its edges.
+        smileRt.sizeDelta = new Vector2(760f, 90f);
+        smileRt.anchoredPosition = new Vector2(0f, 185f);
 
         var previewGo = new GameObject("CameraPreview");
         previewGo.transform.SetParent(canvasGo.transform, false);
@@ -200,7 +232,7 @@ public static class SceneSetup
         var countdownGo = new GameObject("Countdown");
         countdownGo.transform.SetParent(canvasGo.transform, false);
         Text countdown = countdownGo.AddComponent<Text>();
-        countdown.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        countdown.font = GameFont;
         countdown.fontSize = 180;
         countdown.fontStyle = FontStyle.Bold;
         countdown.alignment = TextAnchor.MiddleCenter;
@@ -213,7 +245,10 @@ public static class SceneSetup
         countdownRt.anchorMax = new Vector2(0.5f, 0.5f);
         countdownRt.pivot = new Vector2(0.5f, 0.5f);
         countdownRt.sizeDelta = new Vector2(400f, 400f);
-        countdownRt.anchoredPosition = new Vector2(0f, -60f);
+        // Nudged down slightly (was -60, dead center on the preview) to
+        // keep clear of SmileText's now-2-line caption sitting on the
+        // preview's own top edge just above.
+        countdownRt.anchoredPosition = new Vector2(0f, -90f);
 
         canvasGo.SetActive(false);
 
@@ -400,7 +435,12 @@ public static class SceneSetup
         var camGo = new GameObject("Main Camera");
         camGo.tag = "MainCamera";
         Camera cam = camGo.AddComponent<Camera>();
-        cam.clearFlags = CameraClearFlags.Skybox;
+        // Fallback fill only — the actual sky is CreateSkyBackground's big
+        // painted quad (see CreateSky), which covers the frustum in front
+        // of this. Matches that image's own top color in case of any edge
+        // gap instead of Unity's plain default procedural skybox gradient.
+        cam.clearFlags = CameraClearFlags.SolidColor;
+        cam.backgroundColor = new Color(0.1f, 0.75f, 0.85f);
         cam.fieldOfView = 60f;
         cam.farClipPlane = 1500f;
         camGo.transform.position = new Vector3(0f, 4f, -8f);
@@ -462,6 +502,12 @@ public static class SceneSetup
     {
         float roadWidth = LaneCount * LaneWidth;
         const float sideWidth = 140f;
+        // Real generated cartoon grass artwork (yandex_api/gen_asset.sh,
+        // Assets/Sprites/GrassTile.png — small tufts scattered over a flat
+        // green base, tiles reasonably cleanly) instead of a flat color —
+        // a plain fill read as "green plastic", not grass, from any
+        // distance close enough to actually see it.
+        Texture2D grassTexture = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/GrassTile.png");
         foreach (float side in new[] { -1f, 1f })
         {
             GameObject ground = GameObject.CreatePrimitive(PrimitiveType.Cube);
@@ -474,7 +520,82 @@ public static class SceneSetup
             Renderer renderer = ground.GetComponent<Renderer>();
             Shader shader = Shader.Find("Standard") ?? Shader.Find("Diffuse");
             Material material = new Material(shader) { color = new Color(0.55f, 0.72f, 0.35f) };
+            if (grassTexture != null)
+            {
+                material.mainTexture = grassTexture;
+                material.mainTextureScale = new Vector2(sideWidth / GrassTextureTileSize, RoadLength / GrassTextureTileSize);
+            }
             renderer.sharedMaterial = material;
+
+            // Same trick as the road surface (CreateRoad) — the strip itself
+            // never moves, but its texture offset animates so the grass
+            // streams past at the same rate as everything else on the road,
+            // instead of looking frozen next to it.
+            ScrollingTexture grassScroller = ground.AddComponent<ScrollingTexture>();
+            SerializedObject grassSo = new SerializedObject(grassScroller);
+            grassSo.FindProperty("dashPeriod").floatValue = GrassTextureTileSize;
+            grassSo.ApplyModifiedPropertiesWithoutUndo();
+        }
+    }
+
+    // Thin dirt-and-gravel strip straddling the road/grass seam on both
+    // sides — the asphalt (CreateRoad) used to butt straight up against the
+    // grass (CreateSideGround) with a razor-straight, two-flat-colors edge;
+    // this sits on top of both, right at that boundary, so the transition
+    // reads as a rough, worn shoulder instead of a clean cut. Weighted
+    // mostly onto the grass side (just a sliver over the actual pavement)
+    // so it doesn't cover much of the drivable lane itself.
+    static void CreateRoadShoulder()
+    {
+        float roadWidth = LaneCount * LaneWidth;
+        const float shoulderWidth = 2.5f;
+        const float pavementOverlap = 0.5f; // how far this reaches onto the road side of the seam
+        // ShoulderVariantCount tinted + horizontally-shifted copies of the
+        // single baked ShoulderTile.png sprite, stacked vertically (see
+        // yandex_api scripts / repo history) — per feedback that a single
+        // sprite repeated the whole road length reads as too uniform;
+        // there was no room to add colour/placement randomness to
+        // ShoulderTile.png itself since it's baked AI artwork, not
+        // procedurally drawn circles, so the variance is layered on top
+        // instead (same "stack N bands, cycle through them" trick
+        // CreateDashTexture uses for the lane markings).
+        Texture2D shoulderVariantsTexture = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/ShoulderTileVariants.png");
+        Texture2D shoulderTexture = shoulderVariantsTexture != null
+            ? shoulderVariantsTexture
+            : AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/ShoulderTile.png");
+        if (shoulderTexture == null)
+            return;
+        // The variants texture is ShoulderVariantCount copies of the base
+        // sprite stacked vertically, so a full V-tile now spans that many
+        // times more world length — same accounting CreateDashedDivider
+        // does for DashVariantCount.
+        int shoulderVariantCount = shoulderVariantsTexture != null ? ShoulderVariantCount : 1;
+
+        foreach (float side in new[] { -1f, 1f })
+        {
+            GameObject shoulder = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            shoulder.name = side < 0 ? "RoadShoulderLeft" : "RoadShoulderRight";
+            float centerOffset = shoulderWidth / 2f - pavementOverlap;
+            float x = side * (roadWidth / 2f + centerOffset);
+            shoulder.transform.position = new Vector3(x, -0.03f, RoadCenterZ);
+            shoulder.transform.localScale = new Vector3(shoulderWidth, 0.1f, RoadLength);
+            Object.DestroyImmediate(shoulder.GetComponent<Collider>());
+
+            Renderer renderer = shoulder.GetComponent<Renderer>();
+            Shader shader = Shader.Find("Standard") ?? Shader.Find("Diffuse");
+            Material material = new Material(shader)
+            {
+                mainTexture = shoulderTexture,
+                mainTextureScale = new Vector2(
+                    shoulderWidth / GrassTextureTileSize,
+                    RoadLength / (GrassTextureTileSize * shoulderVariantCount))
+            };
+            renderer.sharedMaterial = material;
+
+            ScrollingTexture shoulderScroller = shoulder.AddComponent<ScrollingTexture>();
+            SerializedObject shoulderSo = new SerializedObject(shoulderScroller);
+            shoulderSo.FindProperty("dashPeriod").floatValue = GrassTextureTileSize * shoulderVariantCount;
+            shoulderSo.ApplyModifiedPropertiesWithoutUndo();
         }
     }
 
@@ -492,13 +613,18 @@ public static class SceneSetup
         Material material = new Material(shader)
         {
             mainTexture = CreateDashTexture(),
-            mainTextureScale = new Vector2(1f, RoadLength / DashPeriod)
+            // One full texture tile now contains DashVariantCount stacked
+            // dash styles (see CreateDashTexture), so a full tile-repeat
+            // spans DashVariantCount * DashPeriod world units, not just
+            // DashPeriod — keeps each individual dash the same on-road
+            // length as before while cycling through the styles.
+            mainTextureScale = new Vector2(1f, RoadLength / (DashPeriod * DashVariantCount))
         };
         renderer.sharedMaterial = material;
 
         ScrollingTexture scroller = divider.AddComponent<ScrollingTexture>();
         SerializedObject so = new SerializedObject(scroller);
-        so.FindProperty("dashPeriod").floatValue = DashPeriod;
+        so.FindProperty("dashPeriod").floatValue = DashPeriod * DashVariantCount;
         so.ApplyModifiedPropertiesWithoutUndo();
     }
 
@@ -697,6 +823,8 @@ public static class SceneSetup
     {
         System.IO.Directory.CreateDirectory("Assets/Prefabs");
 
+        CreateSkyBackground();
+
         var prefabs = new System.Collections.Generic.List<GameObject>();
         foreach (var (name, file, height) in CloudSprites)
         {
@@ -711,7 +839,8 @@ public static class SceneSetup
         SetPrefabArray(so, "prefabs", prefabs);
         so.ApplyModifiedPropertiesWithoutUndo();
 
-        CreateSunSprite();
+        // Sun removed from the scene per feedback — CreateSunSprite/SunArc
+        // stay in place (not deleted) in case it comes back.
     }
 
     static GameObject CreateCloudPrefab(string name, string texturePath, float height)
@@ -749,6 +878,46 @@ public static class SceneSetup
         GameObject prefab = PrefabUtility.SaveAsPrefabAsset(root, savePath);
         Object.DestroyImmediate(root);
         return prefab;
+    }
+
+    // One big painted backdrop (yandex_api/gen_asset.sh, generated opaque —
+    // gen_asset.sh's own background param defaults to transparent, wrong
+    // for a full-frame sky) instead of Unity's plain default procedural
+    // skybox gradient — a cheerful blue-to-warm-yellow gradient with a few
+    // sparkles and a soft glow, per feedback that the sky should be more
+    // fun. Sits far behind the clouds/road, at a height chosen so it stays
+    // in the upper part of the frame despite the camera's own gentle
+    // downward tilt (see CreateCamera) — generously oversized so there's
+    // no visible gap at the frame edges even if this math is slightly off,
+    // rather than risking a hole showing the flat fallback color.
+    static void CreateSkyBackground()
+    {
+        Texture2D tex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/SkyBackground.png");
+        if (tex == null)
+        {
+            Debug.LogWarning("Texture not found: Assets/Sprites/SkyBackground.png");
+            return;
+        }
+
+        var sky = new GameObject("SkyBackground");
+        sky.transform.position = new Vector3(0f, 100f, 400f);
+
+        GameObject sprite = GameObject.CreatePrimitive(PrimitiveType.Quad);
+        sprite.name = "Sprite";
+        Object.DestroyImmediate(sprite.GetComponent<Collider>());
+        sprite.transform.SetParent(sky.transform);
+        sprite.transform.localPosition = Vector3.zero;
+        sprite.transform.localScale = new Vector3(1600f, 1000f, 1f);
+
+        Renderer renderer = sprite.GetComponent<Renderer>();
+        Shader shader = Shader.Find("Legacy Shaders/Diffuse") ?? Shader.Find("Standard");
+        Material material = new Material(shader) { mainTexture = tex };
+
+        System.IO.Directory.CreateDirectory("Assets/Materials");
+        string materialPath = "Assets/Materials/SkyBackground.mat";
+        AssetDatabase.DeleteAsset(materialPath); // safe to rerun Rebuild Scene
+        AssetDatabase.CreateAsset(material, materialPath);
+        renderer.sharedMaterial = material;
     }
 
     static void CreateSunSprite()
@@ -1069,7 +1238,7 @@ public static class SceneSetup
         var textGo = new GameObject("HelpText");
         textGo.transform.SetParent(canvasGo.transform, false);
         Text text = textGo.AddComponent<Text>();
-        text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        text.font = GameFont;
         text.fontSize = 23;
         text.fontStyle = FontStyle.Bold;
         text.color = Color.white;
@@ -1108,7 +1277,7 @@ public static class SceneSetup
         var hintGo = new GameObject("Hint");
         hintGo.transform.SetParent(canvasGo.transform, false);
         Text hint = hintGo.AddComponent<Text>();
-        hint.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        hint.font = GameFont;
         hint.fontSize = 26;
         hint.alignment = TextAnchor.MiddleCenter;
         hint.color = new Color(0.85f, 0.85f, 0.85f);
@@ -1137,7 +1306,7 @@ public static class SceneSetup
         var labelGo = new GameObject("Label");
         labelGo.transform.SetParent(parent, false);
         Text label = labelGo.AddComponent<Text>();
-        label.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        label.font = GameFont;
         label.fontSize = 18;
         label.fontStyle = FontStyle.Bold;
         label.alignment = TextAnchor.UpperCenter;
@@ -1151,7 +1320,22 @@ public static class SceneSetup
         labelRt.anchoredPosition = new Vector2(0f, -6f);
     }
 
-    static RectTransform CreateScoreUI(out Canvas canvas, out GameObject topScoresPanel)
+    // Gameplay HUD panels fan out from each top corner as real pizza-slice
+    // wedges sharing one apex (see CreateWedgeTexture/PositionWedgePanel/
+    // CreateWedgeContent) instead of stacking straight down the edge —
+    // ДИСТАНЦИЯ/ВРЕМЯ split the left quarter into 2 equal slices (same as
+    // ОЧКИ/ТРЮКИ on the right) so each pair of wedges fully fills its
+    // corner's whole 90° edge to edge, no reserved gap between them — the
+    // gear+speed hub floats on top of the shared seam instead of owning its
+    // own slice (see gearSpeedCenterAngle below). angleDeg (the slice's own
+    // center) is measured from the top edge (0°) sweeping down toward the
+    // side edge (90°), same convention for both corners.
+    const float FanRadius = 280f;
+    const float LeftWedgeAngle = 45f; // 90° / 2 panels
+    const float RightWedgeAngle = 45f; // 90° / 2 panels
+    const float WedgeContentRadius = 190f; // how far out along its slice's centerline a panel's label/value sits
+
+    static void CreateScoreUI(out Canvas canvas)
     {
         var canvasGo = new GameObject("ScoreCanvas");
         canvas = canvasGo.AddComponent<Canvas>();
@@ -1164,30 +1348,33 @@ public static class SceneSetup
 
         canvasGo.AddComponent<GraphicRaycaster>();
 
-        // Distance leads the stack now, not score — it's the actual win
-        // condition (100 km), the other three are secondary/bonus
-        // categories. True top-right-corner anchor (not a hardcoded
-        // 1920x1080 offset) — stays flush against the real edge on any
-        // aspect ratio, instead of drifting/clipping when the actual screen
-        // isn't exactly 16:9.
+        // Left-corner fan (ДИСТАНЦИЯ/СКОРОСТЬ/ПЕРЕДАЧА/ВРЕМЯ) — true pizza-
+        // slice wedges sharing one apex at the screen corner (see
+        // CreateWedgeTexture/PositionWedgePanel), not just individually
+        // rotated floating boxes — per feedback, neighbouring panels should
+        // actually share an edge like real cut lines. True corner anchor
+        // (not a hardcoded 1920x1080 offset) — stays flush against the real
+        // corner on any aspect ratio, instead of drifting/clipping when the
+        // actual screen isn't exactly 16:9.
+        Texture2D leftWedgeTexture = CreateWedgeTexture(512, LeftWedgeAngle, true);
+        const float leftContentWidth = 150f;
+
         var distancePanelGo = new GameObject("DistancePanel");
         distancePanelGo.transform.SetParent(canvasGo.transform, false);
-        Image distancePanelImage = distancePanelGo.AddComponent<Image>();
-        distancePanelImage.color = new Color(0f, 0f, 0f, 0.45f);
+        RawImage distancePanelImage = distancePanelGo.AddComponent<RawImage>();
+        distancePanelImage.texture = leftWedgeTexture;
 
         RectTransform distancePanelRt = distancePanelGo.GetComponent<RectTransform>();
-        distancePanelRt.anchorMin = new Vector2(1f, 1f);
-        distancePanelRt.anchorMax = new Vector2(1f, 1f);
-        distancePanelRt.pivot = new Vector2(1f, 1f);
-        distancePanelRt.sizeDelta = new Vector2(260f, 90f);
-        distancePanelRt.anchoredPosition = new Vector2(-20f, -20f);
+        PositionWedgePanel(distancePanelRt, false, LeftWedgeAngle * 0.5f, FanRadius);
 
-        CreatePanelLabel(distancePanelGo.transform, "ДИСТАНЦИЯ");
+        RectTransform distanceContentRt = CreateWedgeContent(distancePanelGo.transform, false, 0f, WedgeContentRadius, leftContentWidth, 90f);
+
+        CreatePanelLabel(distanceContentRt, "ДИСТАНЦИЯ");
 
         var distanceTextGo = new GameObject("DistanceText");
-        distanceTextGo.transform.SetParent(distancePanelGo.transform, false);
+        distanceTextGo.transform.SetParent(distanceContentRt, false);
         Text distanceText = distanceTextGo.AddComponent<Text>();
-        distanceText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        distanceText.font = GameFont;
         distanceText.fontSize = 40;
         distanceText.fontStyle = FontStyle.Bold;
         distanceText.alignment = TextAnchor.MiddleCenter;
@@ -1210,25 +1397,28 @@ public static class SceneSetup
         distanceSo.FindProperty("distanceText").objectReferenceValue = distanceText;
         distanceSo.ApplyModifiedPropertiesWithoutUndo();
 
-        // Score panel, directly under the distance panel — continues the stack.
+        // Score panel — right-corner fan (ОЧКИ/ТРЮКИ), mirrored from the
+        // left-corner one above.
+        Texture2D rightWedgeTexture = CreateWedgeTexture(512, RightWedgeAngle, false);
+        const float rightContentWidth = 230f;
+        const float scoreAngle = RightWedgeAngle * 0.5f;
+
         var panelGo = new GameObject("ScorePanel");
         panelGo.transform.SetParent(canvasGo.transform, false);
-        Image panelImage = panelGo.AddComponent<Image>();
-        panelImage.color = new Color(0f, 0f, 0f, 0.45f);
+        RawImage panelImage = panelGo.AddComponent<RawImage>();
+        panelImage.texture = rightWedgeTexture;
 
         RectTransform panelRt = panelGo.GetComponent<RectTransform>();
-        panelRt.anchorMin = new Vector2(1f, 1f);
-        panelRt.anchorMax = new Vector2(1f, 1f);
-        panelRt.pivot = new Vector2(1f, 1f);
-        panelRt.sizeDelta = new Vector2(260f, 100f);
-        panelRt.anchoredPosition = new Vector2(distancePanelRt.anchoredPosition.x, distancePanelRt.anchoredPosition.y - distancePanelRt.sizeDelta.y - 10f);
+        PositionWedgePanel(panelRt, true, scoreAngle, FanRadius);
 
-        CreatePanelLabel(panelGo.transform, "ОЧКИ");
+        RectTransform scoreContentRt = CreateWedgeContent(panelGo.transform, true, 0f, WedgeContentRadius, rightContentWidth, 100f);
+
+        CreatePanelLabel(scoreContentRt, "ОЧКИ");
 
         var textGo = new GameObject("ScoreText");
-        textGo.transform.SetParent(panelGo.transform, false);
+        textGo.transform.SetParent(scoreContentRt, false);
         Text scoreText = textGo.AddComponent<Text>();
-        scoreText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        scoreText.font = GameFont;
         scoreText.fontSize = 48;
         scoreText.fontStyle = FontStyle.Bold;
         scoreText.alignment = TextAnchor.MiddleCenter;
@@ -1245,24 +1435,29 @@ public static class SceneSetup
         textRt.offsetMin = Vector2.zero;
         textRt.offsetMax = Vector2.zero;
 
-        // Invisible marker at the panel's center — popups fly toward this
-        // point. Shares the same (0,0) anchor/pivot frame as the popups
-        // themselves so their anchoredPosition values are directly
-        // comparable (ScorePopup reads target.anchoredPosition raw) — so
-        // this is deliberately expressed at reference resolution (1920x1080)
-        // even though panelRt itself is now edge-anchored: converts
-        // panelRt's real corner offset into that fixed frame, then finds
-        // its center. Known minor approximation — on a non-16:9 screen the
-        // popup's landing point can drift a little from the panel's actual
-        // (correctly edge-anchored) position, but the panel itself always
-        // renders correctly.
+        // Invisible marker at the panel's actual visible content center —
+        // popups fly toward this point. Shares the same (0,0) anchor/pivot
+        // frame as the popups themselves so their anchoredPosition values
+        // are directly comparable (ScorePopup reads target.anchoredPosition
+        // raw) — so this is deliberately expressed at reference resolution
+        // (1920x1080). panelRt's own pivot is now the wedge's apex (corner),
+        // not its visible content, so this reconstructs the content's real
+        // on-screen offset the same way PositionWedgePanel/CreateWedgeContent
+        // derive it (corner + rotated contentRadius offset), rather than
+        // just reading panelRt.anchoredPosition directly. Known minor
+        // approximation — on a non-16:9 screen the popup's landing point
+        // can drift a little from the panel's actual position, but the
+        // panel itself always renders correctly.
+        float scoreRad = scoreAngle * Mathf.Deg2Rad;
+        Vector2 scoreContentOffset = new Vector2(-Mathf.Cos(scoreRad), -Mathf.Sin(scoreRad)) * WedgeContentRadius;
+        Vector2 scoreContentPos = panelRt.anchoredPosition + scoreContentOffset;
         var counterAnchorGo = new GameObject("CounterAnchor");
         counterAnchorGo.transform.SetParent(canvasGo.transform, false);
         RectTransform counterAnchor = counterAnchorGo.AddComponent<RectTransform>();
         counterAnchor.anchorMin = new Vector2(0f, 0f);
         counterAnchor.anchorMax = new Vector2(0f, 0f);
         counterAnchor.pivot = new Vector2(0f, 0f);
-        counterAnchor.anchoredPosition = new Vector2(1920f + panelRt.anchoredPosition.x, 1080f + panelRt.anchoredPosition.y) - panelRt.sizeDelta / 2f;
+        counterAnchor.anchoredPosition = new Vector2(1920f + scoreContentPos.x, 1080f + scoreContentPos.y);
 
         var managerGo = new GameObject("ScoreManager");
         ScoreManager manager = managerGo.AddComponent<ScoreManager>();
@@ -1273,28 +1468,24 @@ public static class SceneSetup
         so.FindProperty("counterAnchor").objectReferenceValue = counterAnchor;
         so.ApplyModifiedPropertiesWithoutUndo();
 
-        // Timer panel, directly under the score panel.
+        // Timer panel — left-corner fan, outermost slice (closest to the
+        // side edge).
         var timerPanelGo = new GameObject("TimerPanel");
         timerPanelGo.transform.SetParent(canvasGo.transform, false);
-        Image timerPanelImage = timerPanelGo.AddComponent<Image>();
-        timerPanelImage.color = new Color(0f, 0f, 0f, 0.45f);
+        RawImage timerPanelImage = timerPanelGo.AddComponent<RawImage>();
+        timerPanelImage.texture = leftWedgeTexture;
 
         RectTransform timerPanelRt = timerPanelGo.GetComponent<RectTransform>();
-        timerPanelRt.anchorMin = new Vector2(1f, 1f);
-        timerPanelRt.anchorMax = new Vector2(1f, 1f);
-        timerPanelRt.pivot = new Vector2(1f, 1f);
-        timerPanelRt.sizeDelta = new Vector2(260f, 70f);
-        // pivot=(1,1) means anchoredPosition IS this panel's top edge, so
-        // stacking the next one down only needs the PREVIOUS panel's own
-        // height (not this one's) plus the gap.
-        timerPanelRt.anchoredPosition = new Vector2(panelRt.anchoredPosition.x, panelRt.anchoredPosition.y - panelRt.sizeDelta.y - 10f);
+        PositionWedgePanel(timerPanelRt, false, LeftWedgeAngle * 1.5f, FanRadius);
 
-        CreatePanelLabel(timerPanelGo.transform, "ВРЕМЯ");
+        RectTransform timerContentRt = CreateWedgeContent(timerPanelGo.transform, false, 0f, WedgeContentRadius, leftContentWidth, 70f);
+
+        CreatePanelLabel(timerContentRt, "ВРЕМЯ");
 
         var timerTextGo = new GameObject("TimerText");
-        timerTextGo.transform.SetParent(timerPanelGo.transform, false);
+        timerTextGo.transform.SetParent(timerContentRt, false);
         Text timerText = timerTextGo.AddComponent<Text>();
-        timerText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        timerText.font = GameFont;
         timerText.fontSize = 30;
         timerText.fontStyle = FontStyle.Bold;
         timerText.alignment = TextAnchor.MiddleCenter;
@@ -1317,206 +1508,118 @@ public static class SceneSetup
         timerSo.FindProperty("timerText").objectReferenceValue = timerText;
         timerSo.ApplyModifiedPropertiesWithoutUndo();
 
-        // Gear indicator panel, directly under the timer panel — just the
-        // current gear's digit and the lever icon (per feedback: a proper
-        // panel of its own above Speed, not a transient popup and not
-        // squeezed in beside the speed panel). Speed panel below now
-        // chains from this one instead of straight from Timer.
-        var gearPanelGo = new GameObject("GearPanel");
-        gearPanelGo.transform.SetParent(canvasGo.transform, false);
-        Image gearPanelImage = gearPanelGo.AddComponent<Image>();
-        gearPanelImage.color = new Color(0f, 0f, 0f, 0.45f);
+        // Combined gear+speed hub — left-corner fan, floating right on top
+        // of the shared seam between ДИСТАНЦИЯ and ВРЕМЯ (those two wedges
+        // now fill the whole 90° corner edge to edge, same as ОЧКИ/ТРЮКИ do
+        // on the right) as its own standalone dial instead of a third
+        // bounded wedge: a small round badge for the gear digit, right at
+        // the apex, with a curved row of tick dots arcing around it — speed
+        // within the current gear (0..GearStepKmh) lights them up green
+        // through red, like an analog gauge dial instead of a numeric
+        // readout (SpeedIndicator drives both). No wedge background/seam of
+        // its own — this whole hub just floats over whatever's behind it.
+        const float gearSpeedCenterAngle = LeftWedgeAngle; // the seam between the two 45° slices — same convention as RightWedgeAngle for the empty hub below
 
-        RectTransform gearPanelRt = gearPanelGo.GetComponent<RectTransform>();
-        gearPanelRt.anchorMin = new Vector2(1f, 1f);
-        gearPanelRt.anchorMax = new Vector2(1f, 1f);
-        gearPanelRt.pivot = new Vector2(1f, 1f);
-        gearPanelRt.sizeDelta = new Vector2(260f, 100f);
-        gearPanelRt.anchoredPosition = new Vector2(timerPanelRt.anchoredPosition.x, timerPanelRt.anchoredPosition.y - timerPanelRt.sizeDelta.y - 10f);
+        var gearSpeedPanelGo = new GameObject("GearSpeedPanel");
+        gearSpeedPanelGo.transform.SetParent(canvasGo.transform, false);
+        RectTransform gearSpeedPanelRt = gearSpeedPanelGo.AddComponent<RectTransform>();
+        PositionWedgePanel(gearSpeedPanelRt, false, gearSpeedCenterAngle, FanRadius);
 
-        CreatePanelLabel(gearPanelGo.transform, "ПЕРЕДАЧА");
-
-        // Lever icon on the left half of the content band, digit on the
-        // right half — same content band (below the label) every other
-        // panel here uses (anchors y 0..0.75).
-        var gearLeverGo = new GameObject("Lever");
-        gearLeverGo.transform.SetParent(gearPanelGo.transform, false);
-        RawImage gearLeverImage = gearLeverGo.AddComponent<RawImage>();
-        RectTransform gearLeverRt = gearLeverGo.GetComponent<RectTransform>();
-        gearLeverRt.anchorMin = new Vector2(0f, 0f);
-        gearLeverRt.anchorMax = new Vector2(0.45f, 0.75f);
-        gearLeverRt.offsetMin = new Vector2(6f, 4f);
-        gearLeverRt.offsetMax = new Vector2(-4f, -4f);
+        // Close in toward the apex — a distinct "hub" spot, clear of the
+        // tick ring further out. Right at the apex/corner itself — "the
+        // very center" per feedback, not partway out like the rest of the
+        // fan — with a small round badge behind the digit for contrast,
+        // since there's no wedge background here to sit on anymore.
+        const float gearHubRadius = 40f;
+        const float gearHubBadgeSize = 76f;
+        Texture2D gearHubBadgeTexture = CreateCircleTexture(128, new Color(0f, 0f, 0f, 0.45f));
+        RectTransform gearBadgeContentRt = CreateWedgeContent(gearSpeedPanelGo.transform, false, 0f, gearHubRadius, gearHubBadgeSize, gearHubBadgeSize);
+        var gearBadgeGo = new GameObject("GearBadge");
+        gearBadgeGo.transform.SetParent(gearBadgeContentRt, false);
+        RawImage gearBadgeImage = gearBadgeGo.AddComponent<RawImage>();
+        gearBadgeImage.texture = gearHubBadgeTexture;
+        RectTransform gearBadgeRt = gearBadgeImage.GetComponent<RectTransform>();
+        gearBadgeRt.anchorMin = Vector2.zero;
+        gearBadgeRt.anchorMax = Vector2.one;
+        gearBadgeRt.offsetMin = Vector2.zero;
+        gearBadgeRt.offsetMax = Vector2.zero;
 
         var gearDigitGo = new GameObject("GearDigit");
-        gearDigitGo.transform.SetParent(gearPanelGo.transform, false);
+        gearDigitGo.transform.SetParent(gearBadgeContentRt, false);
         Text gearDigitText = gearDigitGo.AddComponent<Text>();
-        gearDigitText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        gearDigitText.fontSize = 44;
+        gearDigitText.font = GameFont;
+        gearDigitText.fontSize = 40;
         gearDigitText.fontStyle = FontStyle.Bold;
         gearDigitText.alignment = TextAnchor.MiddleCenter;
-        gearDigitText.color = new Color(0.6f, 0.9f, 1f);
+        gearDigitText.color = Color.white;
         gearDigitText.text = "1";
         gearDigitGo.AddComponent<Outline>().effectColor = Color.black;
         RectTransform gearDigitRt = gearDigitText.GetComponent<RectTransform>();
-        gearDigitRt.anchorMin = new Vector2(0.45f, 0f);
-        gearDigitRt.anchorMax = new Vector2(1f, 0.75f);
+        gearDigitRt.anchorMin = Vector2.zero;
+        gearDigitRt.anchorMax = Vector2.one;
         gearDigitRt.offsetMin = Vector2.zero;
         gearDigitRt.offsetMax = Vector2.zero;
 
-        // Speed panel, directly under the gear panel now — continues the stack.
-        var speedPanelGo = new GameObject("SpeedPanel");
-        speedPanelGo.transform.SetParent(canvasGo.transform, false);
-        Image speedPanelImage = speedPanelGo.AddComponent<Image>();
-        speedPanelImage.color = new Color(0f, 0f, 0f, 0.45f);
-
-        RectTransform speedPanelRt = speedPanelGo.GetComponent<RectTransform>();
-        speedPanelRt.anchorMin = new Vector2(1f, 1f);
-        speedPanelRt.anchorMax = new Vector2(1f, 1f);
-        speedPanelRt.pivot = new Vector2(1f, 1f);
-        speedPanelRt.sizeDelta = new Vector2(260f, 100f);
-        speedPanelRt.anchoredPosition = new Vector2(gearPanelRt.anchoredPosition.x, gearPanelRt.anchoredPosition.y - gearPanelRt.sizeDelta.y - 10f);
-
-        CreatePanelLabel(speedPanelGo.transform, "СКОРОСТЬ");
-
-        var speedTextGo = new GameObject("SpeedText");
-        speedTextGo.transform.SetParent(speedPanelGo.transform, false);
-        Text speedText = speedTextGo.AddComponent<Text>();
-        speedText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        speedText.fontSize = 34;
-        speedText.fontStyle = FontStyle.Bold;
-        speedText.alignment = TextAnchor.MiddleCenter;
-        speedText.color = new Color(0.6f, 0.9f, 1f);
-        speedText.text = "0.0 км/ч"; // gear no longer duplicated here — see GearPanel above
-
-        Outline speedOutline = speedTextGo.AddComponent<Outline>();
-        speedOutline.effectColor = Color.black;
-        speedOutline.effectDistance = new Vector2(2f, -2f);
-
-        RectTransform speedTextRt = speedTextGo.GetComponent<RectTransform>();
-        speedTextRt.anchorMin = new Vector2(0f, 0f);
-        speedTextRt.anchorMax = new Vector2(1f, 0.75f);
-        speedTextRt.offsetMin = Vector2.zero;
-        speedTextRt.offsetMax = Vector2.zero;
+        // Ring of tick dots, closer in toward the corner now (was out near
+        // the fan's own outer edge) at a shared radius — same radius for
+        // all of them is what makes them read as a curved arc/dial instead
+        // of a scatter of dots. Colors (green -> red) are assigned at
+        // runtime by SpeedIndicator itself, along with which ones are
+        // "lit" — these just start dim.
+        Image[] speedTicks = CreateTickRing(gearSpeedPanelGo.transform, false, 10, 140f, LeftWedgeAngle - 4f);
 
         var speedManagerGo = new GameObject("SpeedIndicator");
         SpeedIndicator speedIndicator = speedManagerGo.AddComponent<SpeedIndicator>();
         SerializedObject speedSo = new SerializedObject(speedIndicator);
-        speedSo.FindProperty("speedText").objectReferenceValue = speedText;
         speedSo.FindProperty("gearDigitText").objectReferenceValue = gearDigitText;
-        speedSo.FindProperty("leverImage").objectReferenceValue = gearLeverImage;
-        // Lever-shift animation frames (yandex_api/gen_asset.sh, see
-        // Assets/Sprites/GearLever*.png) — flickered through at random on
-        // each shift (SpeedIndicator.PlayGearShift), settling back on
-        // leverFrames[0] as the resting frame the icon shows the rest of
-        // the time.
-        SerializedProperty leverFramesProp = speedSo.FindProperty("leverFrames");
-        // 4/5 are 1/3 mirrored horizontally — doubles the tilted-pose
-        // variety (left/right leans) the random flicker can draw from
-        // instead of just the one generated angle each way.
-        string[] leverFrameFiles = { "GearLever1.png", "GearLever2.png", "GearLever3.png", "GearLever4.png", "GearLever5.png" };
-        leverFramesProp.arraySize = leverFrameFiles.Length;
-        for (int i = 0; i < leverFrameFiles.Length; i++)
-            leverFramesProp.GetArrayElementAtIndex(i).objectReferenceValue = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/" + leverFrameFiles[i]);
+        SerializedProperty speedTicksProp = speedSo.FindProperty("speedTicks");
+        speedTicksProp.arraySize = speedTicks.Length;
+        for (int i = 0; i < speedTicks.Length; i++)
+            speedTicksProp.GetArrayElementAtIndex(i).objectReferenceValue = speedTicks[i];
         speedSo.ApplyModifiedPropertiesWithoutUndo();
 
-        // Top-3 panel — on the left side of the screen (true corner anchor,
-        // same pattern the ОЧКИ/ВРЕМЯ/СКОРОСТЬ/ДИСТАНЦИЯ/ТРЮКИ stack uses on
-        // the right), clear of that whole stack instead of crowding next to
-        // it on the same side.
-        var topPanelGo = new GameObject("TopScoresPanel");
-        topPanelGo.transform.SetParent(canvasGo.transform, false);
-        Image topPanelImage = topPanelGo.AddComponent<Image>();
-        topPanelImage.color = new Color(0f, 0f, 0f, 0.45f);
-
-        RectTransform topPanelRt = topPanelGo.GetComponent<RectTransform>();
-        topPanelRt.anchorMin = new Vector2(0f, 1f);
-        topPanelRt.anchorMax = new Vector2(0f, 1f);
-        topPanelRt.pivot = new Vector2(0f, 1f);
-        topPanelRt.sizeDelta = new Vector2(320f, 400f);
-        topPanelRt.anchoredPosition = new Vector2(20f, -20f);
-
-        var topTitleGo = new GameObject("TopScoresTitle");
-        topTitleGo.transform.SetParent(topPanelGo.transform, false);
-        Text topTitle = topTitleGo.AddComponent<Text>();
-        topTitle.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        topTitle.fontSize = 22;
-        topTitle.fontStyle = FontStyle.Bold;
-        topTitle.alignment = TextAnchor.MiddleCenter;
-        topTitle.color = Color.white;
-        topTitle.text = "ТОП: ВРЕМЯ";
-        topTitleGo.AddComponent<Outline>().effectColor = Color.black;
-        RectTransform topTitleRt = topTitle.GetComponent<RectTransform>();
-        topTitleRt.anchorMin = new Vector2(0.5f, 0.5f);
-        topTitleRt.anchorMax = new Vector2(0.5f, 0.5f);
-        topTitleRt.pivot = new Vector2(0.5f, 0.5f);
-        topTitleRt.sizeDelta = new Vector2(300f, 40f);
-        topTitleRt.anchoredPosition = new Vector2(0f, 160f);
-
-        // One row per rank — each with its own photo (if that slot ever had
-        // one attached), same idea as TopResultsPage on the start screen but
-        // scaled down to fit this narrower in-game panel.
-        var topRowTexts = new Text[3];
-        var topRowPhotos = new RawImage[3];
-        float[] topRowY = { 80f, -20f, -120f };
-
-        for (int i = 0; i < 3; i++)
-        {
-            var rowTextGo = new GameObject("TopRowText" + i);
-            rowTextGo.transform.SetParent(topPanelGo.transform, false);
-            Text rowText = rowTextGo.AddComponent<Text>();
-            rowText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-            rowText.fontSize = 20;
-            rowText.fontStyle = FontStyle.Bold;
-            rowText.alignment = TextAnchor.MiddleLeft;
-            rowText.color = Color.white;
-            rowTextGo.AddComponent<Outline>().effectColor = Color.black;
-            RectTransform rowTextRt = rowText.GetComponent<RectTransform>();
-            rowTextRt.anchorMin = new Vector2(0.5f, 0.5f);
-            rowTextRt.anchorMax = new Vector2(0.5f, 0.5f);
-            rowTextRt.pivot = new Vector2(0.5f, 0.5f);
-            rowTextRt.sizeDelta = new Vector2(150f, 40f);
-            rowTextRt.anchoredPosition = new Vector2(-75f, topRowY[i]);
-            topRowTexts[i] = rowText;
-
-            var rowPhotoGo = new GameObject("TopRowPhoto" + i);
-            rowPhotoGo.transform.SetParent(topPanelGo.transform, false);
-            RawImage rowPhoto = rowPhotoGo.AddComponent<RawImage>();
-            rowPhoto.color = Color.white;
-            RectTransform rowPhotoRt = rowPhoto.GetComponent<RectTransform>();
-            rowPhotoRt.anchorMin = new Vector2(0.5f, 0.5f);
-            rowPhotoRt.anchorMax = new Vector2(0.5f, 0.5f);
-            rowPhotoRt.pivot = new Vector2(0.5f, 0.5f);
-            rowPhotoRt.sizeDelta = new Vector2(70f, 70f);
-            rowPhotoRt.anchoredPosition = new Vector2(115f, topRowY[i]);
-            rowPhotoGo.SetActive(false);
-            topRowPhotos[i] = rowPhoto;
-        }
-
+        // HighScoreManager still exists purely as the data layer (ReportRun/
+        // GetTopEntries/SetPhotoPath — used by WinSequence and the start-
+        // screen TopResultsPage carousel) — its own live in-game "ТОП" HUD
+        // panel was removed per feedback: it only ever showed up during
+        // actual gameplay (see the old StartScreenController.BeginGame
+        // SetActive(true) call, now gone too), and nobody reads a small
+        // side panel while actively driving. titleText/rowTexts/rowPhotos
+        // are left unwired (null) — UpdateDisplay already no-ops safely
+        // when they are.
         var highScoreGo = new GameObject("HighScoreManager");
-        HighScoreManager highScore = highScoreGo.AddComponent<HighScoreManager>();
-        SerializedObject highScoreSo = new SerializedObject(highScore);
-        highScoreSo.FindProperty("titleText").objectReferenceValue = topTitle;
-        SerializedProperty topRowTextsProp = highScoreSo.FindProperty("rowTexts");
-        topRowTextsProp.arraySize = topRowTexts.Length;
-        for (int i = 0; i < topRowTexts.Length; i++)
-            topRowTextsProp.GetArrayElementAtIndex(i).objectReferenceValue = topRowTexts[i];
-        SerializedProperty topRowPhotosProp = highScoreSo.FindProperty("rowPhotos");
-        topRowPhotosProp.arraySize = topRowPhotos.Length;
-        for (int i = 0; i < topRowPhotos.Length; i++)
-            topRowPhotosProp.GetArrayElementAtIndex(i).objectReferenceValue = topRowPhotos[i];
-        highScoreSo.ApplyModifiedPropertiesWithoutUndo();
+        highScoreGo.AddComponent<HighScoreManager>();
 
-        topScoresPanel = topPanelGo;
-        return speedPanelRt; // last in the stack — CreateTricksUI chains its panel below this one
+        // Right-corner counterpart to the new left-corner gear+speed hub —
+        // same standalone dial shape (round badge + arc of tick dots, no
+        // wedge background/seam of its own, sitting between ОЧКИ and
+        // ТРЮКИ), just empty for now — reserved for a future indicator,
+        // per feedback, not tied to any data yet.
+        var emptyHubGo = new GameObject("RightHubPlaceholder");
+        emptyHubGo.transform.SetParent(canvasGo.transform, false);
+        RectTransform emptyHubRt = emptyHubGo.AddComponent<RectTransform>();
+        PositionWedgePanel(emptyHubRt, true, RightWedgeAngle, FanRadius);
+
+        Texture2D emptyHubBadgeTexture = CreateCircleTexture(128, new Color(0f, 0f, 0f, 0.45f));
+        RectTransform emptyBadgeContentRt = CreateWedgeContent(emptyHubGo.transform, true, 0f, 40f, 76f, 76f);
+        var emptyBadgeGo = new GameObject("Badge");
+        emptyBadgeGo.transform.SetParent(emptyBadgeContentRt, false);
+        RawImage emptyBadgeImage = emptyBadgeGo.AddComponent<RawImage>();
+        emptyBadgeImage.texture = emptyHubBadgeTexture;
+        RectTransform emptyBadgeRt = emptyBadgeImage.GetComponent<RectTransform>();
+        emptyBadgeRt.anchorMin = Vector2.zero;
+        emptyBadgeRt.anchorMax = Vector2.one;
+        emptyBadgeRt.offsetMin = Vector2.zero;
+        emptyBadgeRt.offsetMax = Vector2.zero;
+
+        CreateTickRing(emptyHubGo.transform, true, 10, 140f, RightWedgeAngle - 4f);
     }
 
-    // One checkbox+text row for the post-win recap (stats pages, record
-    // reveal) — same visual language CreateChecklistRow already uses for
-    // СУТЬ ИГРЫ/ЦЕЛЬ, but center-anchored around a given point instead of
-    // page-local-left, since this recap's elements (recordText, the old
-    // achievementsText) are all centered on screen rather than pinned to a
-    // page's own left edge. rowGo is the single object to SetActive for
+    // One checkbox+text row for the post-win recap's stats pages — same
+    // visual language CreateChecklistRow already uses for СУТЬ ИГРЫ/ЦЕЛЬ,
+    // but center-anchored around a given point instead of page-local-left,
+    // since this recap's rows are centered on screen rather than pinned to
+    // a page's own left edge. rowGo is the single object to SetActive for
     // show/hide (checkbox + text move/hide together); the returned Text is
     // for content updates.
     static Text CreateWinCheckRow(Transform parent, Vector2 pos, float width, int fontSize, out GameObject rowGo)
@@ -1550,7 +1653,7 @@ public static class SceneSetup
         var markGo = new GameObject("Mark");
         markGo.transform.SetParent(checkGo.transform, false);
         Text mark = markGo.AddComponent<Text>();
-        mark.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        mark.font = GameFont;
         mark.fontSize = Mathf.RoundToInt(checkSize * 0.6f);
         mark.fontStyle = FontStyle.Bold;
         mark.alignment = TextAnchor.MiddleCenter;
@@ -1565,16 +1668,15 @@ public static class SceneSetup
         var lineGo = new GameObject("Line");
         lineGo.transform.SetParent(rowRt, false);
         Text line = lineGo.AddComponent<Text>();
-        line.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        line.font = GameFont;
         line.fontSize = fontSize;
         line.fontStyle = FontStyle.Bold;
         line.alignment = TextAnchor.MiddleLeft;
-        // The row's own height is a fixed checkSize (56), but callers pass
-        // whatever fontSize they want (recordText uses 58 — bigger than
-        // that) — without this, Unity's default Truncate wrap mode clips
-        // any line taller than the box down to nothing rendered at all,
-        // not just a cosmetically-cut line, which is exactly what silently
-        // blanked the "NEW RECORD" reveal (see WinSequence's RevealRecords).
+        // The row's own height is a fixed checkSize (56), but callers can
+        // pass a bigger fontSize than that — without this, Unity's default
+        // Truncate wrap mode clips any line taller than the box down to
+        // nothing rendered at all, not just a cosmetically-cut line, which
+        // is exactly what once silently blanked a reveal line here.
         line.verticalOverflow = VerticalWrapMode.Overflow;
         line.color = Color.white;
         line.text = "";
@@ -1601,7 +1703,7 @@ public static class SceneSetup
         finishTextGo.transform.SetParent(scoreCanvas.transform, false);
 
         Text finishText = finishTextGo.AddComponent<Text>();
-        finishText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        finishText.font = GameFont;
         finishText.fontSize = 70;
         finishText.fontStyle = FontStyle.Bold;
         finishText.alignment = TextAnchor.MiddleCenter;
@@ -1620,11 +1722,75 @@ public static class SceneSetup
         finishRt.anchoredPosition = new Vector2(0f, 100f);
         finishTextGo.SetActive(false);
 
+        // Shown for a plain, unanimated 5s hold right before the webcam
+        // screen (CaptureRecordPhoto) — same dark statsBackdrop already up
+        // from the stats pages just before it, so this doesn't need its
+        // own background.
+        var newRecordAnnounceGo = new GameObject("NewRecordAnnounceText");
+        newRecordAnnounceGo.transform.SetParent(scoreCanvas.transform, false);
+        Text newRecordAnnounceText = newRecordAnnounceGo.AddComponent<Text>();
+        newRecordAnnounceText.font = GameFont;
+        newRecordAnnounceText.fontSize = 48;
+        newRecordAnnounceText.fontStyle = FontStyle.Bold;
+        newRecordAnnounceText.alignment = TextAnchor.MiddleCenter;
+        newRecordAnnounceText.color = new Color(1f, 0.85f, 0.15f);
+        newRecordAnnounceText.text = "ВЫ УСТАНОВИЛИ НОВЫЙ РЕКОРД!\nСЕЙЧАС МЫ ВАС СФОТОГРАФИРУЕМ ДЛЯ ИСТОРИИ.\nПРИГОТОВЬТЕСЬ!";
+        newRecordAnnounceGo.AddComponent<Outline>().effectColor = Color.black;
+        RectTransform newRecordAnnounceRt = newRecordAnnounceText.GetComponent<RectTransform>();
+        newRecordAnnounceRt.anchorMin = new Vector2(0.5f, 0.5f);
+        newRecordAnnounceRt.anchorMax = new Vector2(0.5f, 0.5f);
+        newRecordAnnounceRt.pivot = new Vector2(0.5f, 0.5f);
+        newRecordAnnounceRt.sizeDelta = new Vector2(1300f, 300f);
+        newRecordAnnounceRt.anchoredPosition = Vector2.zero;
+        newRecordAnnounceGo.SetActive(false);
+
+        // Shown the instant the goal distance is reached instead of
+        // committing straight to the ending — see WinSequence.OfferContinue.
+        // A plain prompt + 5-4-3-2-1 countdown; flapping in time pushes the
+        // goal further out and this just disappears again.
+        var continuePromptGo = new GameObject("ContinuePrompt");
+        continuePromptGo.transform.SetParent(scoreCanvas.transform, false);
+
+        var continuePromptTextGo = new GameObject("ContinuePromptText");
+        continuePromptTextGo.transform.SetParent(continuePromptGo.transform, false);
+        Text continuePromptText = continuePromptTextGo.AddComponent<Text>();
+        continuePromptText.font = GameFont;
+        continuePromptText.fontSize = 46;
+        continuePromptText.fontStyle = FontStyle.Bold;
+        continuePromptText.alignment = TextAnchor.MiddleCenter;
+        continuePromptText.color = new Color(1f, 0.85f, 0.15f);
+        continuePromptText.text = "ДЛЯ ПРОДОЛЖЕНИЯ — СДЕЛАЙТЕ ДВИЖЕНИЕ МАХАНИЯ";
+        continuePromptTextGo.AddComponent<Outline>().effectColor = Color.black;
+        RectTransform continuePromptTextRt = continuePromptText.GetComponent<RectTransform>();
+        continuePromptTextRt.anchorMin = new Vector2(0.5f, 0.5f);
+        continuePromptTextRt.anchorMax = new Vector2(0.5f, 0.5f);
+        continuePromptTextRt.pivot = new Vector2(0.5f, 0.5f);
+        continuePromptTextRt.sizeDelta = new Vector2(1300f, 120f);
+        continuePromptTextRt.anchoredPosition = new Vector2(0f, 120f);
+
+        var continueCountdownGo = new GameObject("ContinueCountdownText");
+        continueCountdownGo.transform.SetParent(continuePromptGo.transform, false);
+        Text continueCountdownText = continueCountdownGo.AddComponent<Text>();
+        continueCountdownText.font = GameFont;
+        continueCountdownText.fontSize = 120;
+        continueCountdownText.fontStyle = FontStyle.Bold;
+        continueCountdownText.alignment = TextAnchor.MiddleCenter;
+        continueCountdownText.color = Color.white;
+        continueCountdownGo.AddComponent<Outline>().effectColor = Color.black;
+        RectTransform continueCountdownRt = continueCountdownText.GetComponent<RectTransform>();
+        continueCountdownRt.anchorMin = new Vector2(0.5f, 0.5f);
+        continueCountdownRt.anchorMax = new Vector2(0.5f, 0.5f);
+        continueCountdownRt.pivot = new Vector2(0.5f, 0.5f);
+        continueCountdownRt.sizeDelta = new Vector2(300f, 160f);
+        continueCountdownRt.anchoredPosition = new Vector2(0f, -60f);
+
+        continuePromptGo.SetActive(false);
+
         var winTextGo = new GameObject("WinText");
         winTextGo.transform.SetParent(scoreCanvas.transform, false);
 
         Text winText = winTextGo.AddComponent<Text>();
-        winText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        winText.font = GameFont;
         winText.fontSize = 76; // was 90 for the old shorter "ВЫ ПОБЕДИЛИ!" — smaller so the longer replacement stays on one line
         winText.fontStyle = FontStyle.Bold;
         winText.alignment = TextAnchor.MiddleCenter;
@@ -1672,14 +1838,6 @@ public static class SceneSetup
         statsBackdropRt.anchoredPosition = new Vector2(0f, -110f);
         statsBackdropGo.SetActive(false);
 
-        // Sequential "new record!" reveal — shown below the win text once
-        // the run's final stats are checked against all 4 leaderboards.
-        // Bigger than the old plain-text version (58 vs 54) and now a
-        // checkbox row like the stats pages below it, not a standalone
-        // colored line.
-        Text recordText = CreateWinCheckRow(scoreCanvas.transform, new Vector2(0f, 60f), 1000f, 58, out GameObject recordRowGo);
-        recordText.color = new Color(0.4f, 1f, 0.5f);
-
         // Post-win achievements summary — cycles a few pages (totals,
         // collected, hit, tricks+rank), lower on screen than the record
         // reveal since both can briefly overlap in time. Title + a pool of
@@ -1697,7 +1855,7 @@ public static class SceneSetup
         var statsTitleGo = new GameObject("StatsTitle");
         statsTitleGo.transform.SetParent(scoreCanvas.transform, false);
         Text statsTitle = statsTitleGo.AddComponent<Text>();
-        statsTitle.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        statsTitle.font = GameFont;
         statsTitle.fontSize = 40;
         statsTitle.fontStyle = FontStyle.Bold;
         statsTitle.alignment = TextAnchor.MiddleCenter;
@@ -1762,10 +1920,50 @@ public static class SceneSetup
             statsIconSlots[i] = icon;
         }
 
+        // Count badges for the first few slots — used only when a page's
+        // total is too big to draw one icon per unit (see WinSequence.
+        // ShowIconStatsPage's grouping threshold): collapses to one icon
+        // per TYPE plus a "×N" badge instead. Types are read straight off
+        // whatever distinct textures AchievementStats recorded (see
+        // PlayerController.EntityIcon), not a fixed shortlist — up to 15
+        // good / 13 bad LaneObjects entries plus the mystery fallback, so
+        // sized for the worst case (every known good type collected at
+        // least once in one run) rather than the old fixed 3-per-page
+        // assumption. Corner-badge offset (small, tucked against the
+        // icon's own bottom-right) so it can't reach into a neighbouring
+        // slot's icon.
+        const int iconCountLabelCount = 16;
+        var statsIconCountLabels = new Text[iconCountLabelCount];
+        for (int i = 0; i < iconCountLabelCount; i++)
+        {
+            int col = i % iconCols;
+            int row = i / iconCols;
+            float cx = iconGridLeft + iconCellWidth * (col + 0.5f);
+            float cy = iconGridTop - iconCellHeight * (row + 0.5f);
+
+            var labelGo = new GameObject("StatsIconCount" + i);
+            labelGo.transform.SetParent(scoreCanvas.transform, false);
+            Text label = labelGo.AddComponent<Text>();
+            label.font = GameFont;
+            label.fontSize = 26;
+            label.fontStyle = FontStyle.Bold;
+            label.alignment = TextAnchor.MiddleCenter;
+            label.color = new Color(1f, 0.85f, 0.2f);
+            labelGo.AddComponent<Outline>().effectColor = Color.black;
+            RectTransform labelRt = label.GetComponent<RectTransform>();
+            labelRt.anchorMin = new Vector2(0.5f, 0.5f);
+            labelRt.anchorMax = new Vector2(0.5f, 0.5f);
+            labelRt.pivot = new Vector2(0.5f, 0.5f);
+            labelRt.sizeDelta = new Vector2(70f, 34f);
+            labelRt.anchoredPosition = new Vector2(cx + 38f, cy - 32f);
+            labelGo.SetActive(false);
+            statsIconCountLabels[i] = label;
+        }
+
         var statsTotalGo = new GameObject("StatsTotal");
         statsTotalGo.transform.SetParent(scoreCanvas.transform, false);
         Text statsTotalText = statsTotalGo.AddComponent<Text>();
-        statsTotalText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        statsTotalText.font = GameFont;
         statsTotalText.fontSize = 44;
         statsTotalText.fontStyle = FontStyle.Bold;
         statsTotalText.alignment = TextAnchor.MiddleCenter;
@@ -1782,19 +1980,20 @@ public static class SceneSetup
         // The finale of the post-win recap: the real per-category top-3
         // tables (same TopResultsPage the start screen carousel uses, photo
         // slots included) instead of a plain numeric rank line — right after
-        // the photo capture (RevealRecords), so the just-taken photo is
-        // visible immediately instead of only later on the start screen.
+        // the photo capture (WinSequence.CaptureRecordPhoto), so the
+        // just-taken photo is visible immediately instead of only later on
+        // the start screen.
         var leaderboardRootGo = new GameObject("WinLeaderboardRoot");
         leaderboardRootGo.transform.SetParent(scoreCanvas.transform, false);
         RectTransform leaderboardRootRt = leaderboardRootGo.AddComponent<RectTransform>();
         leaderboardRootRt.anchorMin = new Vector2(0.5f, 0.5f);
         leaderboardRootRt.anchorMax = new Vector2(0.5f, 0.5f);
         leaderboardRootRt.pivot = new Vector2(0.5f, 0.5f);
-        // Must match the start-screen carousel's own box (1400 wide, see
+        // Must match the start-screen carousel's own box (1300 wide, see
         // CreateStartScreen) exactly — CreateTopResultsPage's arrow geometry
-        // hardcodes half that width (700f) assuming its parent is that same
+        // hardcodes half that width (650f) assuming its parent is that same
         // size, and the two screens are meant to look identical anyway.
-        leaderboardRootRt.sizeDelta = new Vector2(1400f, 720f);
+        leaderboardRootRt.sizeDelta = new Vector2(1300f, 720f);
         leaderboardRootRt.anchoredPosition = Vector2.zero;
 
         // Same dark tinted frame the start-screen carousel uses behind its
@@ -1813,12 +2012,15 @@ public static class SceneSetup
         leaderboardBgRt.offsetMin = Vector2.zero;
         leaderboardBgRt.offsetMax = Vector2.zero;
 
+        // Display order (see TopResultsDisplayOrder), not category-index
+        // order — the array's own order is the order ShowLeaderboardTables
+        // cycles through, so it directly controls what's shown first.
         var leaderboardPages = new GameObject[4];
-        for (int category = 0; category < 4; category++)
+        for (int i = 0; i < TopResultsDisplayOrder.Length; i++)
         {
-            GameObject page = CreateTopResultsPage(leaderboardRootRt, category);
+            GameObject page = CreateTopResultsPage(leaderboardRootRt, TopResultsDisplayOrder[i]);
             page.SetActive(false);
-            leaderboardPages[category] = page;
+            leaderboardPages[i] = page;
         }
 
         // The whole root (background included) stays hidden until
@@ -1833,10 +2035,11 @@ public static class SceneSetup
 
         SerializedObject so = new SerializedObject(win);
         so.FindProperty("finishText").objectReferenceValue = finishTextGo;
+        so.FindProperty("newRecordAnnounceText").objectReferenceValue = newRecordAnnounceGo;
+        so.FindProperty("continuePromptRoot").objectReferenceValue = continuePromptGo;
+        so.FindProperty("continueCountdownText").objectReferenceValue = continueCountdownText;
         so.FindProperty("winTextRoot").objectReferenceValue = winRt;
         so.FindProperty("statsBackdrop").objectReferenceValue = statsBackdropGo;
-        so.FindProperty("recordRowRoot").objectReferenceValue = recordRowGo;
-        so.FindProperty("recordText").objectReferenceValue = recordText;
         so.FindProperty("statsTitle").objectReferenceValue = statsTitle;
         SerializedProperty statsRowsProp = so.FindProperty("statsRows");
         statsRowsProp.arraySize = statsRows.Length;
@@ -1850,13 +2053,12 @@ public static class SceneSetup
         statsIconSlotsProp.arraySize = statsIconSlots.Length;
         for (int i = 0; i < statsIconSlots.Length; i++)
             statsIconSlotsProp.GetArrayElementAtIndex(i).objectReferenceValue = statsIconSlots[i];
+        SerializedProperty statsIconCountLabelsProp = so.FindProperty("statsIconCountLabels");
+        statsIconCountLabelsProp.arraySize = statsIconCountLabels.Length;
+        for (int i = 0; i < statsIconCountLabels.Length; i++)
+            statsIconCountLabelsProp.GetArrayElementAtIndex(i).objectReferenceValue = statsIconCountLabels[i];
         so.FindProperty("statsTotalText").objectReferenceValue = statsTotalText;
-        so.FindProperty("cherryIcon").objectReferenceValue = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/Cherry.png");
-        so.FindProperty("heartIcon").objectReferenceValue = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/Heart.png");
-        so.FindProperty("flowerIcon").objectReferenceValue = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/Flower.png");
-        so.FindProperty("dogIcon").objectReferenceValue = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/Dog.png");
-        so.FindProperty("catIcon").objectReferenceValue = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/Cat.png");
-        so.FindProperty("bicycleIcon").objectReferenceValue = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/Bicycle.png");
+        so.FindProperty("mysteryIcon").objectReferenceValue = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/Mystery.png");
         so.FindProperty("leaderboardRoot").objectReferenceValue = leaderboardRootGo;
         SerializedProperty leaderboardPagesProp = so.FindProperty("leaderboardPages");
         leaderboardPagesProp.arraySize = leaderboardPages.Length;
@@ -1869,7 +2071,7 @@ public static class SceneSetup
     // distance/score/time/speed (same size, same background, same edge
     // anchor) instead of floating alone at mid-screen-right in a
     // differently-sized panel, so it reads as part of the same HUD group.
-    static void CreateTricksUI(RectTransform chainFrom)
+    static void CreateTricksUI()
     {
         var canvasGo = new GameObject("TricksCanvas");
         Canvas canvas = canvasGo.AddComponent<Canvas>();
@@ -1882,24 +2084,26 @@ public static class SceneSetup
 
         canvasGo.AddComponent<GraphicRaycaster>();
 
+        Texture2D rightWedgeTexture = CreateWedgeTexture(512, RightWedgeAngle, false);
+        const float rightContentWidth = 230f;
+        const float tricksAngle = RightWedgeAngle * 1.5f;
+
         var panelGo = new GameObject("TricksPanel");
         panelGo.transform.SetParent(canvasGo.transform, false);
-        Image panelImage = panelGo.AddComponent<Image>();
-        panelImage.color = new Color(0f, 0f, 0f, 0.45f);
+        RawImage panelImage = panelGo.AddComponent<RawImage>();
+        panelImage.texture = rightWedgeTexture;
 
         RectTransform panelRt = panelGo.GetComponent<RectTransform>();
-        panelRt.anchorMin = new Vector2(1f, 1f);
-        panelRt.anchorMax = new Vector2(1f, 1f);
-        panelRt.pivot = new Vector2(1f, 1f);
-        panelRt.sizeDelta = new Vector2(260f, 120f);
-        panelRt.anchoredPosition = new Vector2(chainFrom.anchoredPosition.x, chainFrom.anchoredPosition.y - chainFrom.sizeDelta.y - 10f);
+        PositionWedgePanel(panelRt, true, tricksAngle, FanRadius);
 
-        CreatePanelLabel(panelGo.transform, "ТРЮКИ");
+        RectTransform tricksContentRt = CreateWedgeContent(panelGo.transform, true, 0f, WedgeContentRadius, rightContentWidth, 120f);
+
+        CreatePanelLabel(tricksContentRt, "ТРЮКИ");
 
         var textGo = new GameObject("TricksText");
-        textGo.transform.SetParent(panelGo.transform, false);
+        textGo.transform.SetParent(tricksContentRt, false);
         Text tricksText = textGo.AddComponent<Text>();
-        tricksText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        tricksText.font = GameFont;
         tricksText.fontSize = 56;
         tricksText.fontStyle = FontStyle.Bold;
         tricksText.alignment = TextAnchor.MiddleCenter;
@@ -1916,18 +2120,24 @@ public static class SceneSetup
         textRt.offsetMin = Vector2.zero;
         textRt.offsetMax = Vector2.zero;
 
-        // Marks the panel's own center in a (0,0)-anchored frame — popups
-        // live in that same frame, so their anchoredPosition is directly
-        // comparable/lerp-able against this point (mirrors ScoreManager's
-        // counterAnchor setup — same reference-resolution approximation
-        // noted there).
+        // Marks the panel's actual visible content center in a (0,0)-
+        // anchored frame — popups live in that same frame, so their
+        // anchoredPosition is directly comparable/lerp-able against this
+        // point (mirrors ScoreManager's counterAnchor setup — same
+        // reference-resolution approximation noted there). panelRt's own
+        // pivot is the wedge's apex now, not its content, so this
+        // reconstructs the content's real on-screen offset the same way
+        // PositionWedgePanel/CreateWedgeContent derive it.
+        float tricksRad = tricksAngle * Mathf.Deg2Rad;
+        Vector2 tricksContentOffset = new Vector2(-Mathf.Cos(tricksRad), -Mathf.Sin(tricksRad)) * WedgeContentRadius;
+        Vector2 tricksContentPos = panelRt.anchoredPosition + tricksContentOffset;
         var counterAnchorGo = new GameObject("TricksCounterAnchor");
         counterAnchorGo.transform.SetParent(canvasGo.transform, false);
         RectTransform counterAnchor = counterAnchorGo.AddComponent<RectTransform>();
         counterAnchor.anchorMin = Vector2.zero;
         counterAnchor.anchorMax = Vector2.zero;
         counterAnchor.pivot = Vector2.zero;
-        counterAnchor.anchoredPosition = new Vector2(1920f + panelRt.anchoredPosition.x, 1080f + panelRt.anchoredPosition.y) - panelRt.sizeDelta / 2f;
+        counterAnchor.anchoredPosition = new Vector2(1920f + tricksContentPos.x, 1080f + tricksContentPos.y);
 
         var managerGo = new GameObject("TricksManager");
         TricksManager manager = managerGo.AddComponent<TricksManager>();
@@ -1939,37 +2149,19 @@ public static class SceneSetup
     }
 
     // Bottom-left/bottom-right HUD per player, for the gesture simulator:
-    // a legend (keys + gesture descriptions), a row of raw key-state
-    // squares, and the interpreted-gesture arrows — sits dim/idle when that
-    // player is on keyboard controls (GestureInput disabled). Returns both
-    // canvases (left, right) so the start screen can hide them while its
-    // own menu is up (they're gameplay HUD, not menu chrome) and reveal
-    // them once the game actually begins.
+    // sensor height readout and the interpreted-gesture arrows — sits
+    // dim/idle when that player is on keyboard controls (GestureInput
+    // disabled). Returns both canvases (left, right) so the start screen
+    // can hide them while its own menu is up (they're gameplay HUD, not
+    // menu chrome) and reveal them once the game actually begins.
     static (GameObject left, GameObject right) CreateGestureIndicators(GameObject playerRight, GameObject playerLeft)
     {
-        GameObject leftCanvas = CreateGesturePanel(playerLeft, new Vector2(0f, 0f),
-            "КЛАВИШИ: лев. рука Q/A верх/низ; прав. рука E/D верх/низ\n"
-            + "ЖЕСТЫ: обе вниз — присесть, по диагонали — смещение, "
-            + "Q+E быстро жать вместе — прыжок-полёт",
-            new[] { "Q", "A", "E", "D" });
-
-        GameObject rightCanvas = CreateGesturePanel(playerRight, new Vector2(1f, 0f),
-            "КЛАВИШИ: лев. рука U/J верх/низ; прав. рука O/L верх/низ\n"
-            + "ЖЕСТЫ: обе вниз — присесть, по диагонали — смещение, "
-            + "U+O быстро жать вместе — прыжок-полёт",
-            new[] { "U", "J", "O", "L" });
-
+        GameObject leftCanvas = CreateGesturePanel(playerLeft, new Vector2(0f, 0f));
+        GameObject rightCanvas = CreateGesturePanel(playerRight, new Vector2(1f, 0f));
         return (leftCanvas, rightCanvas);
     }
 
-    // Index order matches GestureKeyIndicator.KeyOrder(): leftUp, leftDown,
-    // rightUp, rightDown. Column/row place each key into the physical 2x2
-    // block it's bound to (column0 = left hand, column1 = right hand;
-    // row0 = up, row1 = down).
-    static readonly int[] GestureGridCol = { 0, 0, 1, 1 };
-    static readonly int[] GestureGridRow = { 0, 1, 0, 1 };
-
-    static GameObject CreateGesturePanel(GameObject player, Vector2 anchor, string legendText, string[] keyLabels)
+    static GameObject CreateGesturePanel(GameObject player, Vector2 anchor)
     {
         bool leftSide = anchor.x < 0.5f;
         float sign = leftSide ? 1f : -1f;
@@ -1990,7 +2182,7 @@ public static class SceneSetup
         var actionGo = new GameObject("GestureAction");
         actionGo.transform.SetParent(canvasGo.transform, false);
         Text actionText = actionGo.AddComponent<Text>();
-        actionText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        actionText.font = GameFont;
         actionText.fontSize = 40;
         actionText.fontStyle = FontStyle.Bold;
         actionText.alignment = leftSide ? TextAnchor.LowerLeft : TextAnchor.LowerRight;
@@ -2020,7 +2212,7 @@ public static class SceneSetup
         var glyphGo = new GameObject("GestureGlyphs");
         glyphGo.transform.SetParent(canvasGo.transform, false);
         Text glyphText = glyphGo.AddComponent<Text>();
-        glyphText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        glyphText.font = GameFont;
         glyphText.fontSize = 72;
         glyphText.fontStyle = FontStyle.Bold;
         glyphText.alignment = leftSide ? TextAnchor.LowerLeft : TextAnchor.LowerRight;
@@ -2053,7 +2245,7 @@ public static class SceneSetup
         var rawValueGo = new GameObject("GestureRawValues");
         rawValueGo.transform.SetParent(canvasGo.transform, false);
         Text rawValueText = rawValueGo.AddComponent<Text>();
-        rawValueText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        rawValueText.font = GameFont;
         rawValueText.fontSize = 40;
         rawValueText.fontStyle = FontStyle.Bold;
         rawValueText.alignment = leftSide ? TextAnchor.LowerLeft : TextAnchor.LowerRight;
@@ -2080,90 +2272,11 @@ public static class SceneSetup
         rawValueSo.FindProperty("valueText").objectReferenceValue = rawValueText;
         rawValueSo.ApplyModifiedPropertiesWithoutUndo();
 
-        // Raw key-state squares — one per physical key, laid out as the
-        // actual 2x2 keyboard block above the arrows (see GestureGridCol/Row).
-        const float squareSize = 56f;
-        const float squareStep = 66f; // size + gap
-        const float gridBaseY = rawValueY + rawValueHeight + 12f;
-        var squareImages = new Image[keyLabels.Length];
-        for (int i = 0; i < keyLabels.Length; i++)
-        {
-            int col = GestureGridCol[i];
-            int row = GestureGridRow[i];
-            float colFromEdge = leftSide ? col : (1 - col); // mirrored so left-hand column reads left on screen either side
-            float x = sign * (20f + colFromEdge * squareStep);
-            float y = gridBaseY + (1 - row) * squareStep;
-            squareImages[i] = CreateKeySquare(canvasGo.transform, anchor, new Vector2(x, y), squareSize, keyLabels[i]);
-        }
-
-        var keyIndicatorGo = new GameObject(player.name + "GestureKeyIndicator");
-        GestureKeyIndicator keyIndicator = keyIndicatorGo.AddComponent<GestureKeyIndicator>();
-        SerializedObject keySo = new SerializedObject(keyIndicator);
-        keySo.FindProperty("gestureInput").objectReferenceValue = player.GetComponent<GestureInput>();
-        SerializedProperty squaresProp = keySo.FindProperty("squares");
-        squaresProp.arraySize = squareImages.Length;
-        for (int i = 0; i < squareImages.Length; i++)
-            squaresProp.GetArrayElementAtIndex(i).objectReferenceValue = squareImages[i];
-        keySo.ApplyModifiedPropertiesWithoutUndo();
-
-        // Legend text (keys + gesture descriptions), above the grid — bigger
-        // than the rest of this HUD since it's meant to be read, not glanced at.
-        var legendGo = new GameObject("GestureLegend");
-        legendGo.transform.SetParent(canvasGo.transform, false);
-        Text legend = legendGo.AddComponent<Text>();
-        legend.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        legend.fontSize = 26;
-        legend.fontStyle = FontStyle.Bold;
-        legend.alignment = leftSide ? TextAnchor.LowerLeft : TextAnchor.LowerRight;
-        legend.color = new Color(0.9f, 0.9f, 0.9f);
-        legend.text = legendText;
-
-        Outline legendOutline = legendGo.AddComponent<Outline>();
-        legendOutline.effectColor = Color.black;
-        legendOutline.effectDistance = new Vector2(2f, -2f);
-
-        RectTransform legendRt = legend.GetComponent<RectTransform>();
-        legendRt.anchorMin = anchor;
-        legendRt.anchorMax = anchor;
-        legendRt.pivot = anchor;
-        legendRt.sizeDelta = new Vector2(780f, 150f);
-        float legendY = gridBaseY + 1f * squareStep + squareSize + 15f;
-        legendRt.anchoredPosition = new Vector2(sign * 20f, legendY);
-
+        // Raw key-state squares (2x2 block, GestureKeyIndicator) and the
+        // legend text above them removed per feedback — too much debug
+        // clutter during actual play. Sensor height (above) and the
+        // interpreted-gesture arrows stay.
         return canvasGo;
-    }
-
-    // One labeled square for GestureKeyIndicator's raw key-press display.
-    static Image CreateKeySquare(Transform parent, Vector2 anchor, Vector2 anchoredPosition, float size, string label)
-    {
-        var go = new GameObject("Key_" + label);
-        go.transform.SetParent(parent, false);
-        Image image = go.AddComponent<Image>();
-        image.color = new Color(0.2f, 0.2f, 0.2f, 0.75f);
-
-        RectTransform rt = go.GetComponent<RectTransform>();
-        rt.anchorMin = anchor;
-        rt.anchorMax = anchor;
-        rt.pivot = anchor;
-        rt.sizeDelta = new Vector2(size, size);
-        rt.anchoredPosition = anchoredPosition;
-
-        var textGo = new GameObject("Label");
-        textGo.transform.SetParent(go.transform, false);
-        Text text = textGo.AddComponent<Text>();
-        text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        text.fontSize = 26;
-        text.fontStyle = FontStyle.Bold;
-        text.alignment = TextAnchor.MiddleCenter;
-        text.color = Color.white;
-        text.text = label;
-        RectTransform textRt = textGo.GetComponent<RectTransform>();
-        textRt.anchorMin = Vector2.zero;
-        textRt.anchorMax = Vector2.one;
-        textRt.offsetMin = Vector2.zero;
-        textRt.offsetMax = Vector2.zero;
-
-        return image;
     }
 
     // Used to be 6 color variants (random pick from badDuckPrefabs), tinted
@@ -2183,6 +2296,15 @@ public static class SceneSetup
         var root = new GameObject(name);
         root.AddComponent<MovingEntity>();
         root.AddComponent<DuckUnderObstacle>();
+        // Duck/jump success is decided purely from DuckUnderObstacle above
+        // (see PlayerController.OnTriggerEnter — that check runs first and
+        // returns before ever reaching this), so adding ScoreValue here
+        // only affects the failure case (walked into it standing up) —
+        // without it, that case fell through to OnTriggerEnter's own
+        // catch-all path, which registers the hit but never calls
+        // ScoreManager.SpawnPopup, so no "-1" ever flew to the score panel
+        // for this specific obstacle.
+        root.AddComponent<ScoreValue>().value = -1;
 
         // Same physical footprint the old primitive-built arch used — the
         // sprite is stretched to fit it rather than driven by its own
@@ -2238,6 +2360,11 @@ public static class SceneSetup
         var root = new GameObject("BigArch");
         root.AddComponent<MovingEntity>();
         root.AddComponent<TallArchObstacle>();
+        // Same reasoning as CreateArchPrefab's own ScoreValue — the walk/
+        // duck-under success path returns out of OnTriggerEnter before
+        // ever reaching this, so it only affects the failure case (jumped
+        // into it), which otherwise fell through to the no-popup catch-all.
+        root.AddComponent<ScoreValue>().value = -1;
 
         float aspect = (float)tex.width / tex.height;
         // Wider than the road itself so the posts land out on the roadside,
@@ -2303,7 +2430,7 @@ public static class SceneSetup
         so.ApplyModifiedPropertiesWithoutUndo();
     }
 
-    static void CreateStartScreen(GameObject playerRight, GameObject playerLeft, GameObject gestureCanvasLeft, GameObject gestureCanvasRight, GameObject topScoresPanel)
+    static void CreateStartScreen(GameObject playerRight, GameObject playerLeft, GameObject gestureCanvasLeft, GameObject gestureCanvasRight)
     {
         var canvasGo = new GameObject("StartScreenCanvas");
         Canvas canvas = canvasGo.AddComponent<Canvas>();
@@ -2344,7 +2471,7 @@ public static class SceneSetup
         var titleGo = new GameObject("Title");
         titleGo.transform.SetParent(canvasGo.transform, false);
         Text title = titleGo.AddComponent<Text>();
-        title.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        title.font = GameFont;
         title.fontSize = 44;
         title.fontStyle = FontStyle.Bold;
         title.alignment = TextAnchor.MiddleCenter;
@@ -2380,9 +2507,13 @@ public static class SceneSetup
         // Widened (was 1200) specifically so the TOP-results title column
         // (leftmost) has room for a category name like "СКОРОСТЬ" on one
         // line — at the old width it had no space to wrap at, so Unity fell
-        // back to a mid-word break. See CreateTopResultsPage's matching
-        // "700f" (this box's new half-width) in its arrow-geometry math.
-        carouselRt.sizeDelta = new Vector2(1400f, 720f);
+        // back to a mid-word break. Narrowed back down slightly from a
+        // since-tried 1400 — its right edge (+700) reached into the HUD
+        // panel stack's own left edge (+680, see CreateScoreUI's panels,
+        // all 260 wide with a 20px margin from the screen edge). See
+        // CreateTopResultsPage's matching "650f" (this box's new
+        // half-width) in its arrow-geometry math.
+        carouselRt.sizeDelta = new Vector2(1300f, 720f);
         carouselRt.anchoredPosition = new Vector2(0f, 90f);
 
         // Background/frame so the carousel content (especially the winner
@@ -2423,12 +2554,14 @@ public static class SceneSetup
 
         var carouselPages = new System.Collections.Generic.List<GameObject>
         {
-            // Leaderboards first, control/rules instructions after — see
-            // each page's own photo row for the winners' pictures.
-            CreateTopResultsPage(carouselRt, 0),
-            CreateTopResultsPage(carouselRt, 1),
-            CreateTopResultsPage(carouselRt, 2),
-            CreateTopResultsPage(carouselRt, 3),
+            // ЦЕЛЬ first — page[0] is what's actually visible the instant
+            // the start screen appears (see the SetActive loop below), and
+            // per feedback it should always be this one specifically, not
+            // just "some instructions page" — a leaderboard table means
+            // nothing yet to someone who hasn't been told what they're
+            // even looking at. Leaderboards used to lead the carousel;
+            // moved later, right after these two.
+            goalPage.page,
 
             // Word order/spelling on this page is deliberately mangled
             // (meme reference, per the user) — verbatim as given, not a
@@ -2438,7 +2571,11 @@ public static class SceneSetup
                 "плохое избегат",
                 "трюки вдвоём делат").page,
 
-            goalPage.page,
+            // Order matches TopResultsDisplayOrder (Очки/Время/Скорость/Трюки).
+            CreateTopResultsPage(carouselRt, TopResultsDisplayOrder[0]),
+            CreateTopResultsPage(carouselRt, TopResultsDisplayOrder[1]),
+            CreateTopResultsPage(carouselRt, TopResultsDisplayOrder[2]),
+            CreateTopResultsPage(carouselRt, TopResultsDisplayOrder[3]),
 
             CreateObjectGridPage(carouselRt, "ХОРОШИЕ ОБЪЕКТЫ", new Color(0.4f, 1f, 0.5f), GoodObjectNames),
             CreateObjectGridPage(carouselRt, "ПЛОХИЕ ОБЪЕКТЫ", new Color(1f, 0.4f, 0.3f), BadObjectNames),
@@ -2537,16 +2674,22 @@ public static class SceneSetup
         startRowRt.anchorMin = new Vector2(0.5f, 0.5f);
         startRowRt.anchorMax = new Vector2(0.5f, 0.5f);
         startRowRt.pivot = new Vector2(0.5f, 0.5f);
-        startRowRt.sizeDelta = new Vector2(420f, 90f); // width widened both sides (was 340) — height already right
+        // Widened again (was 420, one centered button) to fit ТРЕНИРОВКА
+        // beside СТАРТ — same two-box-side-by-side layout as the player-
+        // count row above.
+        startRowRt.sizeDelta = new Vector2(700f, 90f);
         startRowRt.anchoredPosition = new Vector2(0f, -500f);
 
-        GameObject startBtn = CreateMenuOption(startRowGo.transform, "StartButton", Vector2.zero, "СТАРТ", 300f, 32, 60f);
+        GameObject startBtn = CreateMenuOption(startRowGo.transform, "StartButton", new Vector2(-180f, 0f), "[X] СТАРТ", 300f, 32, 60f);
+        // Leads to an empty placeholder screen for now (TrainingCanvas,
+        // below) — real training-mode content comes later.
+        GameObject trainingBtn = CreateMenuOption(startRowGo.transform, "TrainingButton", new Vector2(180f, 0f), "[ ] ТРЕНИРОВКА", 300f, 32, 60f);
 
         // Shown only if Start is pressed while "Датчики расстояния" is selected.
         var notImplementedGo = new GameObject("NotImplemented");
         notImplementedGo.transform.SetParent(canvasGo.transform, false);
         Text notImplemented = notImplementedGo.AddComponent<Text>();
-        notImplemented.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        notImplemented.font = GameFont;
         notImplemented.fontSize = 24;
         notImplemented.fontStyle = FontStyle.Bold;
         notImplemented.alignment = TextAnchor.MiddleCenter;
@@ -2559,6 +2702,88 @@ public static class SceneSetup
         notImplementedRt.sizeDelta = new Vector2(900f, 50f);
         notImplementedRt.anchoredPosition = new Vector2(0f, -460f);
         notImplementedGo.SetActive(false);
+
+        // Placeholder screen for the new ТРЕНИРОВКА button — genuinely
+        // empty for now (real training-mode content comes later), just a
+        // title and a reminder of how to get back out, since there's
+        // nothing else on it to interact with. Its own canvas (not a page
+        // inside StartScreenCanvas) so it can fully replace the menu
+        // instead of layering over it.
+        var trainingCanvasGo = new GameObject("TrainingCanvas");
+        Canvas trainingCanvas = trainingCanvasGo.AddComponent<Canvas>();
+        trainingCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        trainingCanvas.sortingOrder = 100; // same layer as StartScreenCanvas — the two never show at once
+        CanvasScaler trainingScaler = trainingCanvasGo.AddComponent<CanvasScaler>();
+        trainingScaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        trainingScaler.referenceResolution = new Vector2(1920f, 1080f);
+        trainingScaler.matchWidthOrHeight = 1f;
+        trainingCanvasGo.AddComponent<GraphicRaycaster>();
+
+        var trainingBackdropGo = new GameObject("Backdrop");
+        trainingBackdropGo.transform.SetParent(trainingCanvasGo.transform, false);
+        Image trainingBackdrop = trainingBackdropGo.AddComponent<Image>();
+        trainingBackdrop.color = new Color(0.05f, 0.05f, 0.08f, 1f);
+        RectTransform trainingBackdropRt = trainingBackdropGo.GetComponent<RectTransform>();
+        trainingBackdropRt.anchorMin = Vector2.zero;
+        trainingBackdropRt.anchorMax = Vector2.one;
+        trainingBackdropRt.offsetMin = Vector2.zero;
+        trainingBackdropRt.offsetMax = Vector2.zero;
+
+        var trainingTitleGo = new GameObject("TrainingTitle");
+        trainingTitleGo.transform.SetParent(trainingCanvasGo.transform, false);
+        Text trainingTitle = trainingTitleGo.AddComponent<Text>();
+        trainingTitle.font = GameFont;
+        trainingTitle.fontSize = 64;
+        trainingTitle.fontStyle = FontStyle.Bold;
+        trainingTitle.alignment = TextAnchor.MiddleCenter;
+        trainingTitle.color = new Color(1f, 0.85f, 0.2f);
+        trainingTitle.text = "ТРЕНИРОВКА";
+        trainingTitleGo.AddComponent<Outline>().effectColor = Color.black;
+        RectTransform trainingTitleRt = trainingTitle.GetComponent<RectTransform>();
+        trainingTitleRt.anchorMin = new Vector2(0.5f, 0.5f);
+        trainingTitleRt.anchorMax = new Vector2(0.5f, 0.5f);
+        trainingTitleRt.pivot = new Vector2(0.5f, 0.5f);
+        trainingTitleRt.sizeDelta = new Vector2(1200f, 100f);
+        trainingTitleRt.anchoredPosition = new Vector2(0f, 60f);
+
+        var trainingExitGo = new GameObject("TrainingExitHint");
+        trainingExitGo.transform.SetParent(trainingCanvasGo.transform, false);
+        Text trainingExit = trainingExitGo.AddComponent<Text>();
+        trainingExit.font = GameFont;
+        trainingExit.fontSize = 30;
+        trainingExit.fontStyle = FontStyle.Bold;
+        trainingExit.alignment = TextAnchor.MiddleCenter;
+        trainingExit.color = new Color(0.85f, 0.85f, 0.85f);
+        trainingExit.text = "ВЫХОД — ДЕРЖАТЬ ВНИЗ 5 СЕК";
+        trainingExitGo.AddComponent<Outline>().effectColor = Color.black;
+        RectTransform trainingExitRt = trainingExit.GetComponent<RectTransform>();
+        trainingExitRt.anchorMin = new Vector2(0.5f, 0.5f);
+        trainingExitRt.anchorMax = new Vector2(0.5f, 0.5f);
+        trainingExitRt.pivot = new Vector2(0.5f, 0.5f);
+        trainingExitRt.sizeDelta = new Vector2(900f, 60f);
+        trainingExitRt.anchoredPosition = new Vector2(0f, -60f);
+
+        // Live countdown while actually holding down — only visible during
+        // the hold itself (see StartScreenController.UpdateTrainingScreen),
+        // the static hint above stays up the whole time regardless.
+        var trainingCountdownGo = new GameObject("TrainingExitCountdown");
+        trainingCountdownGo.transform.SetParent(trainingCanvasGo.transform, false);
+        Text trainingCountdownText = trainingCountdownGo.AddComponent<Text>();
+        trainingCountdownText.font = GameFont;
+        trainingCountdownText.fontSize = 90;
+        trainingCountdownText.fontStyle = FontStyle.Bold;
+        trainingCountdownText.alignment = TextAnchor.MiddleCenter;
+        trainingCountdownText.color = new Color(1f, 0.85f, 0.15f);
+        trainingCountdownGo.AddComponent<Outline>().effectColor = Color.black;
+        RectTransform trainingCountdownRt = trainingCountdownText.GetComponent<RectTransform>();
+        trainingCountdownRt.anchorMin = new Vector2(0.5f, 0.5f);
+        trainingCountdownRt.anchorMax = new Vector2(0.5f, 0.5f);
+        trainingCountdownRt.pivot = new Vector2(0.5f, 0.5f);
+        trainingCountdownRt.sizeDelta = new Vector2(240f, 130f);
+        trainingCountdownRt.anchoredPosition = new Vector2(0f, -160f);
+        trainingCountdownGo.SetActive(false);
+
+        trainingCanvasGo.SetActive(false);
 
         // Bottom-left free space left behind once the per-player gesture
         // HUDs (КЛАВИШИ/ЖЕСТЫ panels) are hidden for the menu — a short,
@@ -2573,7 +2798,7 @@ public static class SceneSetup
         var menuHelpGo = new GameObject("MenuHelpText");
         menuHelpGo.transform.SetParent(canvasGo.transform, false);
         Text menuHelp = menuHelpGo.AddComponent<Text>();
-        menuHelp.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        menuHelp.font = GameFont;
         menuHelp.fontSize = 20;
         menuHelp.fontStyle = FontStyle.Bold;
         menuHelp.alignment = TextAnchor.LowerLeft;
@@ -2624,6 +2849,11 @@ public static class SceneSetup
         so.FindProperty("controllerRowBg").objectReferenceValue = controllerRowBg;
         so.FindProperty("notImplementedText").objectReferenceValue = notImplemented;
         so.FindProperty("startBg").objectReferenceValue = startBtn.GetComponent<Image>();
+        so.FindProperty("startText").objectReferenceValue = startBtn.GetComponentInChildren<Text>();
+        so.FindProperty("trainingBg").objectReferenceValue = trainingBtn.GetComponent<Image>();
+        so.FindProperty("trainingText").objectReferenceValue = trainingBtn.GetComponentInChildren<Text>();
+        so.FindProperty("trainingCanvasRoot").objectReferenceValue = trainingCanvasGo;
+        so.FindProperty("trainingExitCountdownText").objectReferenceValue = trainingCountdownText;
         so.FindProperty("startOutline").objectReferenceValue = startRowOutline;
         so.FindProperty("startRowBg").objectReferenceValue = startRowBg;
         so.FindProperty("playerRight").objectReferenceValue = playerRight;
@@ -2633,7 +2863,6 @@ public static class SceneSetup
         so.FindProperty("joystickLeft").objectReferenceValue = playerLeft.GetComponent<JoystickInput>();
         so.FindProperty("gestureCanvasRight").objectReferenceValue = gestureCanvasRight;
         so.FindProperty("gestureCanvasLeft").objectReferenceValue = gestureCanvasLeft;
-        so.FindProperty("topScoresPanel").objectReferenceValue = topScoresPanel;
         so.FindProperty("musicSource").objectReferenceValue = musicSource;
         so.ApplyModifiedPropertiesWithoutUndo();
     }
@@ -2660,7 +2889,7 @@ public static class SceneSetup
         var textGo = new GameObject("Text");
         textGo.transform.SetParent(go.transform, false);
         Text text = textGo.AddComponent<Text>();
-        text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        text.font = GameFont;
         text.fontSize = fontSize;
         text.fontStyle = FontStyle.Bold;
         text.alignment = TextAnchor.MiddleCenter;
@@ -2694,7 +2923,7 @@ public static class SceneSetup
         var go = new GameObject("Title");
         go.transform.SetParent(parent, false);
         Text title = go.AddComponent<Text>();
-        title.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        title.font = GameFont;
         title.fontSize = 40;
         title.fontStyle = FontStyle.Bold;
         title.alignment = TextAnchor.MiddleCenter;
@@ -2714,7 +2943,7 @@ public static class SceneSetup
         var go = new GameObject("Caption");
         go.transform.SetParent(parent, false);
         Text caption = go.AddComponent<Text>();
-        caption.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        caption.font = GameFont;
         caption.fontSize = 26;
         caption.fontStyle = FontStyle.Bold;
         caption.alignment = TextAnchor.MiddleCenter;
@@ -2788,7 +3017,7 @@ public static class SceneSetup
         var markGo = new GameObject("Mark");
         markGo.transform.SetParent(checkGo.transform, false);
         Text mark = markGo.AddComponent<Text>();
-        mark.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        mark.font = GameFont;
         mark.fontSize = 42;
         mark.fontStyle = FontStyle.Bold;
         mark.alignment = TextAnchor.MiddleCenter;
@@ -2803,7 +3032,7 @@ public static class SceneSetup
         var lineGo = new GameObject("Line");
         lineGo.transform.SetParent(parent, false);
         Text line = lineGo.AddComponent<Text>();
-        line.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        line.font = GameFont;
         line.fontSize = 40;
         line.fontStyle = FontStyle.Bold;
         line.alignment = TextAnchor.MiddleLeft;
@@ -2926,7 +3155,7 @@ public static class SceneSetup
             var labelGo = new GameObject("Label_" + items[i].name);
             labelGo.transform.SetParent(page.transform, false);
             Text label = labelGo.AddComponent<Text>();
-            label.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            label.font = GameFont;
             label.fontSize = 24; // was 18 — bigger per feedback
             label.fontStyle = FontStyle.Bold;
             label.alignment = TextAnchor.MiddleCenter;
@@ -3017,7 +3246,7 @@ public static class SceneSetup
         var go = new GameObject("Label");
         go.transform.SetParent(parent, false);
         Text label = go.AddComponent<Text>();
-        label.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        label.font = GameFont;
         label.fontSize = fontSize;
         label.fontStyle = FontStyle.Bold;
         label.alignment = TextAnchor.MiddleCenter;
@@ -3104,7 +3333,7 @@ public static class SceneSetup
         var markGo = new GameObject("Mark");
         markGo.transform.SetParent(checkGo.transform, false);
         Text mark = markGo.AddComponent<Text>();
-        mark.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        mark.font = GameFont;
         mark.fontSize = Mathf.RoundToInt(checkSize * 0.6f);
         mark.fontStyle = FontStyle.Bold;
         mark.alignment = TextAnchor.MiddleCenter;
@@ -3245,7 +3474,7 @@ public static class SceneSetup
         var successGo = new GameObject("SuccessText");
         successGo.transform.SetParent(page.transform, false);
         Text successText = successGo.AddComponent<Text>();
-        successText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        successText.font = GameFont;
         successText.fontSize = 44;
         successText.fontStyle = FontStyle.Bold;
         successText.alignment = TextAnchor.MiddleCenter;
@@ -3322,7 +3551,7 @@ public static class SceneSetup
         var successGo = new GameObject("SuccessText");
         successGo.transform.SetParent(page.transform, false);
         Text successText = successGo.AddComponent<Text>();
-        successText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        successText.font = GameFont;
         successText.fontSize = 44;
         successText.fontStyle = FontStyle.Bold;
         successText.alignment = TextAnchor.MiddleCenter;
@@ -3398,7 +3627,7 @@ public static class SceneSetup
         var successGo = new GameObject("SuccessText");
         successGo.transform.SetParent(page.transform, false);
         Text successText = successGo.AddComponent<Text>();
-        successText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        successText.font = GameFont;
         successText.fontSize = 44;
         successText.fontStyle = FontStyle.Bold;
         successText.alignment = TextAnchor.MiddleCenter;
@@ -3587,7 +3816,7 @@ public static class SceneSetup
         var counterGo = new GameObject("HoverCounter");
         counterGo.transform.SetParent(page.transform, false);
         Text counterText = counterGo.AddComponent<Text>();
-        counterText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        counterText.font = GameFont;
         counterText.fontSize = 60;
         counterText.fontStyle = FontStyle.Bold;
         counterText.alignment = TextAnchor.MiddleCenter;
@@ -3781,7 +4010,7 @@ public static class SceneSetup
         var go = new GameObject("Arrow");
         go.transform.SetParent(parent, false);
         Text text = go.AddComponent<Text>();
-        text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        text.font = GameFont;
         text.fontSize = 64;
         text.fontStyle = FontStyle.Bold;
         text.alignment = TextAnchor.MiddleCenter;
@@ -3802,8 +4031,18 @@ public static class SceneSetup
     // the leaderboard itself only exists in PlayerPrefs, not at build time.
     // Same order as HighScoreManager's private Category enum/CategoryNames —
     // duplicated here only for the placeholder text below (SceneSetup can't
-    // reach into that runtime-only private array at edit time).
+    // reach into that runtime-only private array at edit time). Category
+    // INDICES (used for data — PlayerPrefs, ranksByCategory, etc.) stay in
+    // this order everywhere; only the on-screen page ORDER is different,
+    // see TopResultsDisplayOrder below.
     static readonly string[] TopCategoryNames = { "ВРЕМЯ", "ОЧКИ", "ТРЮКИ", "СКОРОСТЬ" };
+
+    // Display order for the top-results pages (start-screen carousel and
+    // the win-sequence leaderboard both use this) — Очки/Время/Скорость/
+    // Трюки, matching the HUD panel stack's own top-to-bottom order
+    // (ОЧКИ/ВРЕМЯ/.../СКОРОСТЬ/ТРЮКИ), not the category's internal index
+    // order above.
+    static readonly int[] TopResultsDisplayOrder = { 1, 0, 3, 2 };
 
     static GameObject CreateTopResultsPage(Transform parent, int category)
     {
@@ -3823,7 +4062,7 @@ public static class SceneSetup
         var titleGo = new GameObject("Title");
         titleGo.transform.SetParent(page.transform, false);
         Text titleText = titleGo.AddComponent<Text>();
-        titleText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        titleText.font = GameFont;
         titleText.fontSize = 34;
         titleText.fontStyle = FontStyle.Bold;
         titleText.alignment = TextAnchor.MiddleCenter;
@@ -3835,7 +4074,10 @@ public static class SceneSetup
         titleRt.anchorMax = new Vector2(0.5f, 0.5f);
         titleRt.pivot = new Vector2(0.5f, 0.5f);
         titleRt.sizeDelta = new Vector2(260f, 200f);
-        titleRt.anchoredPosition = new Vector2(-560f, 0f);
+        // -510, not -560 — shifted right to match the box's own left edge
+        // moving in from -700 to -650 (see carouselRt/leaderboardRootRt's
+        // now-1300-wide box), keeping the same ~10px margin it always had.
+        titleRt.anchoredPosition = new Vector2(-510f, 0f);
 
         // One row per rank — each with its own photo (if that slot ever had
         // one attached), not a single photo for #1 shown off to the side.
@@ -3876,7 +4118,7 @@ public static class SceneSetup
 
         // Value text's own right edge (x=-160, width190, see below) — the
         // arrows below start just past this point, regardless of row.
-        const float valueRightEdge = -160f + 190f / 2f;
+        const float valueRightEdge = -110f + 190f / 2f; // matches rowValueRt's own -110 anchoredPosition.x above
         Texture2D arrowHeadTexture = CreateTriangleTexture(64);
 
         for (int i = 0; i < 3; i++)
@@ -3905,13 +4147,13 @@ public static class SceneSetup
                 : new Vector2(medalBoxSize * medalAspect, medalBoxSize);
             float[] medalWidthBoost = { 1f, 1.55f, 1.45f }; // gold, silver, bronze
             medalRt.sizeDelta = new Vector2(medalBaseSize.x * medalWidthBoost[i], medalBaseSize.y);
-            medalRt.anchoredPosition = new Vector2(-335f, rowY[i]);
+            medalRt.anchoredPosition = new Vector2(-285f, rowY[i]); // shifted right 50, same reasoning as titleRt above
             rowMedals[i] = medalImg;
 
             var rowValueGo = new GameObject("RowValue" + i);
             rowValueGo.transform.SetParent(page.transform, false);
             Text rowValue = rowValueGo.AddComponent<Text>();
-            rowValue.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            rowValue.font = GameFont;
             rowValue.fontSize = 36;
             rowValue.fontStyle = FontStyle.Bold;
             rowValue.alignment = TextAnchor.MiddleLeft;
@@ -3923,7 +4165,7 @@ public static class SceneSetup
             rowValueRt.anchorMax = new Vector2(0.5f, 0.5f);
             rowValueRt.pivot = new Vector2(0.5f, 0.5f);
             rowValueRt.sizeDelta = new Vector2(190f, 80f);
-            rowValueRt.anchoredPosition = new Vector2(-160f, rowY[i]);
+            rowValueRt.anchoredPosition = new Vector2(-110f, rowY[i]); // shifted right 50, same reasoning as titleRt above
             rowValueTexts[i] = rowValue;
 
             // Connects the result to its photo with a real shaft+arrowhead
@@ -3934,7 +4176,7 @@ public static class SceneSetup
             // the link between a result and its picture isn't obvious.
             // Sized to whatever gap that row actually has (rank 2's is much
             // tighter than rank 1/3's, so its arrow comes out shorter too).
-            float photoLeftEdge = 700f + photoX[i] - photoSize; // 700 = half of the carousel box's new 1400 width
+            float photoLeftEdge = 650f + photoX[i] - photoSize; // 650 = half of the carousel box's now-1300 width
             float arrowY = (rowY[i] + photoY[i]) / 2f;
             float gap = photoLeftEdge - valueRightEdge;
             float headSize = Mathf.Clamp(gap * 0.3f, 18f, 44f);
@@ -4041,7 +4283,7 @@ public static class SceneSetup
         var questionGo = new GameObject("Question");
         questionGo.transform.SetParent(canvasGo.transform, false);
         Text question = questionGo.AddComponent<Text>();
-        question.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        question.font = GameFont;
         question.fontSize = 54;
         question.fontStyle = FontStyle.Bold;
         question.alignment = TextAnchor.MiddleCenter;
@@ -4061,7 +4303,7 @@ public static class SceneSetup
         var hintGo = new GameObject("Hint");
         hintGo.transform.SetParent(canvasGo.transform, false);
         Text hint = hintGo.AddComponent<Text>();
-        hint.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        hint.font = GameFont;
         hint.fontSize = 24;
         hint.alignment = TextAnchor.MiddleCenter;
         hint.color = new Color(0.85f, 0.85f, 0.85f);
@@ -4103,7 +4345,7 @@ public static class SceneSetup
         var textGo = new GameObject("CountdownText");
         textGo.transform.SetParent(canvasGo.transform, false);
         Text text = textGo.AddComponent<Text>();
-        text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        text.font = GameFont;
         text.fontSize = 64;
         text.fontStyle = FontStyle.Bold;
         text.alignment = TextAnchor.MiddleCenter;
@@ -4155,6 +4397,10 @@ public static class SceneSetup
         scaler.referenceResolution = new Vector2(1920f, 1080f);
         scaler.matchWidthOrHeight = 1f;
         canvasGo.AddComponent<GraphicRaycaster>();
+
+        // Lets IntroSequence fade the whole screen out smoothly at the very
+        // end instead of canvasRoot just vanishing on the spot.
+        CanvasGroup canvasGroup = canvasGo.AddComponent<CanvasGroup>();
 
         // Solid backdrop so gaps between not-yet-landed flowers show a
         // plain color instead of the 3D scene bleeding through underneath.
@@ -4225,49 +4471,15 @@ public static class SceneSetup
             }
         }
 
-        // Full-screen brick wall, shown once the flower grid finishes
-        // filling (and holds for a beat — see IntroSequence) — opaque, so
-        // it fully covers the flowers/backdrop underneath just by sitting
-        // on top of them (later sibling), no need to also deactivate those.
-        // Stays completely still for the whole countdown; only the digit/
-        // word layer on top of it (below) moves/pulses.
-        var wallGo = new GameObject("GraffitiWall");
-        wallGo.transform.SetParent(canvasGo.transform, false);
-        RawImage wallImage = wallGo.AddComponent<RawImage>();
-        wallImage.texture = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/GraffitiWall.png");
-        RectTransform wallRt = wallImage.GetComponent<RectTransform>();
-        wallRt.anchorMin = Vector2.zero;
-        wallRt.anchorMax = Vector2.one;
-        wallRt.offsetMin = Vector2.zero;
-        wallRt.offsetMax = Vector2.zero;
-        wallGo.SetActive(false);
-
-        // Full-screen black fade for the "buzz fades out, flowers darken,
-        // wall reveals from the dark, digits appear a beat later" transition
-        // (see IntroSequence.RunIntro) — a later sibling than the flowers
-        // AND the wall, so the same overlay darkens the finished flower pile
-        // first, then stays opaque while the wall switches on underneath it,
-        // then fades back out to reveal the wall before the countdown starts.
-        var darkOverlayGo = new GameObject("DarkOverlay");
-        darkOverlayGo.transform.SetParent(canvasGo.transform, false);
-        Image darkOverlay = darkOverlayGo.AddComponent<Image>();
-        darkOverlay.color = new Color(0f, 0f, 0f, 0f);
-        darkOverlay.raycastTarget = false;
-        RectTransform darkOverlayRt = darkOverlayGo.GetComponent<RectTransform>();
-        darkOverlayRt.anchorMin = Vector2.zero;
-        darkOverlayRt.anchorMax = Vector2.one;
-        darkOverlayRt.offsetMin = Vector2.zero;
-        darkOverlayRt.offsetMax = Vector2.zero;
-        darkOverlayGo.SetActive(false);
-
         // Digit/word overlay — real generated graffiti artwork
         // (yandex_api/gen_asset.sh, see Assets/Sprites/CountdownGraffiti*.png),
-        // transparent cutouts (no wall baked in, unlike the wall image
-        // above) so this can pulse on its own without the wall moving with
-        // it. One texture per step (5/4/3/2/1/СТАРТ), swapped on a single
+        // transparent cutouts so it draws directly over the finished flower
+        // pile underneath (later sibling, no separate wall background
+        // anymore — used to swap in a full-screen brick wall here first).
+        // One texture per step (5/4/3/2/1/СТАРТ), swapped on a single
         // RawImage rather than 6 separate GameObjects (same texture-swap
         // pattern TopResultsPage already uses for its photo slots).
-        // Full-screen, same as the wall it sits on top of.
+        // Full-screen, same as the flower grid underneath it.
         var countdownGo = new GameObject("CountdownImage");
         countdownGo.transform.SetParent(canvasGo.transform, false);
         RawImage countdownImage = countdownGo.AddComponent<RawImage>();
@@ -4307,8 +4519,7 @@ public static class SceneSetup
         IntroSequence intro = introGo.AddComponent<IntroSequence>();
         SerializedObject introSo = new SerializedObject(intro);
         introSo.FindProperty("canvasRoot").objectReferenceValue = canvasGo;
-        introSo.FindProperty("wall").objectReferenceValue = wallGo;
-        introSo.FindProperty("darkOverlay").objectReferenceValue = darkOverlay;
+        introSo.FindProperty("canvasGroup").objectReferenceValue = canvasGroup;
         introSo.FindProperty("countdownImage").objectReferenceValue = countdownImage;
         SerializedProperty countdownTexturesProp = introSo.FindProperty("countdownTextures");
         countdownTexturesProp.arraySize = countdownTextures.Length;
@@ -4322,6 +4533,162 @@ public static class SceneSetup
         for (int i = 0; i < orderedFlowers.Count; i++)
             flowersProp.GetArrayElementAtIndex(i).objectReferenceValue = orderedFlowers[i];
         introSo.ApplyModifiedPropertiesWithoutUndo();
+
+        // Starts hidden — LoaderScreenController.BeginConfirmHold reveals
+        // it once a control is held (used to rely on IntroSequence's own
+        // now-removed auto-start-or-skip Start() to hide this instantly;
+        // nothing does that anymore, so it needs to start off explicitly).
+        canvasGo.SetActive(false);
+    }
+
+    // The true first thing shown when the game boots (sortingOrder above
+    // every other canvas, including IntroCanvas) — a plain arcade-cabinet
+    // "attract mode" idle screen: gray backdrop, a schematic of the
+    // physical control panel along the bottom (ControlPanelDiagram.png,
+    // generated at 1600x420 — the Highlight() pixel coordinates below are
+    // expressed in that same source space), and a prompt cycling through
+    // what to try, synced to a highlighted control (LoaderScreenController
+    // drives both). Holding a key hands off to IntroSequence; releasing
+    // early aborts back here — see LoaderScreenController/IntroSequence.
+    static void CreateLoaderScreen()
+    {
+        var canvasGo = new GameObject("LoaderCanvas");
+        Canvas canvas = canvasGo.AddComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        canvas.sortingOrder = 230;
+
+        CanvasScaler scaler = canvasGo.AddComponent<CanvasScaler>();
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        scaler.referenceResolution = new Vector2(1920f, 1080f);
+        scaler.matchWidthOrHeight = 1f;
+        canvasGo.AddComponent<GraphicRaycaster>();
+
+        var backdropGo = new GameObject("Backdrop");
+        backdropGo.transform.SetParent(canvasGo.transform, false);
+        Image backdrop = backdropGo.AddComponent<Image>();
+        backdrop.color = new Color(0.32f, 0.32f, 0.34f);
+        RectTransform backdropRt = backdropGo.GetComponent<RectTransform>();
+        backdropRt.anchorMin = Vector2.zero;
+        backdropRt.anchorMax = Vector2.one;
+        backdropRt.offsetMin = Vector2.zero;
+        backdropRt.offsetMax = Vector2.zero;
+
+        Texture2D panelTexture = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/ControlPanelDiagram.png");
+        var panelGo = new GameObject("PanelDiagram");
+        panelGo.transform.SetParent(canvasGo.transform, false);
+        RawImage panelImage = panelGo.AddComponent<RawImage>();
+        panelImage.texture = panelTexture;
+        RectTransform panelRt = panelImage.GetComponent<RectTransform>();
+        panelRt.anchorMin = new Vector2(0.5f, 0f);
+        panelRt.anchorMax = new Vector2(0.5f, 0f);
+        panelRt.pivot = new Vector2(0.5f, 0f);
+        const float panelWidth = 1400f;
+        const float panelHeight = panelWidth * 420f / 1600f; // preserve ControlPanelDiagram.png's own 1600x420 aspect ratio
+        panelRt.sizeDelta = new Vector2(panelWidth, panelHeight);
+        panelRt.anchoredPosition = new Vector2(0f, 60f);
+
+        GameObject knob1 = CreatePanelHighlight(panelGo.transform, "HighlightKnob1", panelWidth, panelHeight, 200f, 300f, 150f, 150f);
+        GameObject knob2 = CreatePanelHighlight(panelGo.transform, "HighlightKnob2", panelWidth, panelHeight, 380f, 300f, 150f, 150f);
+        GameObject joystick = CreatePanelHighlight(panelGo.transform, "HighlightJoystick", panelWidth, panelHeight, 600f, 250f, 170f, 230f);
+        GameObject button1 = CreatePanelHighlight(panelGo.transform, "HighlightButton1", panelWidth, panelHeight, 830f, 260f, 170f, 170f);
+        GameObject button2 = CreatePanelHighlight(panelGo.transform, "HighlightButton2", panelWidth, panelHeight, 990f, 260f, 170f, 170f);
+        GameObject button3 = CreatePanelHighlight(panelGo.transform, "HighlightButton3", panelWidth, panelHeight, 1150f, 260f, 170f, 170f);
+        GameObject sensor = CreatePanelHighlight(panelGo.transform, "HighlightSensor", panelWidth, panelHeight, 1380f, 290f, 190f, 190f);
+
+        var messageGo = new GameObject("MessageText");
+        messageGo.transform.SetParent(canvasGo.transform, false);
+        Text messageText = messageGo.AddComponent<Text>();
+        messageText.font = GameFont;
+        messageText.fontSize = 64;
+        messageText.fontStyle = FontStyle.Bold;
+        messageText.alignment = TextAnchor.MiddleCenter;
+        messageText.color = Color.white;
+        messageText.text = string.Empty;
+        Outline messageOutline = messageGo.AddComponent<Outline>();
+        messageOutline.effectColor = Color.black;
+        messageOutline.effectDistance = new Vector2(3f, -3f);
+        RectTransform messageRt = messageGo.GetComponent<RectTransform>();
+        messageRt.anchorMin = new Vector2(0.5f, 1f);
+        messageRt.anchorMax = new Vector2(0.5f, 1f);
+        messageRt.pivot = new Vector2(0.5f, 0.5f);
+        messageRt.sizeDelta = new Vector2(1700f, 100f);
+        messageRt.anchoredPosition = new Vector2(0f, -260f);
+
+        var loaderManagerGo = new GameObject("LoaderScreenManager");
+        LoaderScreenController loader = loaderManagerGo.AddComponent<LoaderScreenController>();
+        SerializedObject loaderSo = new SerializedObject(loader);
+        loaderSo.FindProperty("canvasRoot").objectReferenceValue = canvasGo;
+        loaderSo.FindProperty("introSequence").objectReferenceValue = Object.FindObjectOfType<IntroSequence>();
+        loaderSo.FindProperty("messageText").objectReferenceValue = messageText;
+
+        SerializedProperty buttonProp = loaderSo.FindProperty("buttonHighlights");
+        buttonProp.arraySize = 3;
+        buttonProp.GetArrayElementAtIndex(0).objectReferenceValue = button1;
+        buttonProp.GetArrayElementAtIndex(1).objectReferenceValue = button2;
+        buttonProp.GetArrayElementAtIndex(2).objectReferenceValue = button3;
+
+        SerializedProperty sensorProp = loaderSo.FindProperty("sensorHighlights");
+        sensorProp.arraySize = 1;
+        sensorProp.GetArrayElementAtIndex(0).objectReferenceValue = sensor;
+
+        SerializedProperty joystickProp = loaderSo.FindProperty("joystickHighlights");
+        joystickProp.arraySize = 1;
+        joystickProp.GetArrayElementAtIndex(0).objectReferenceValue = joystick;
+
+        SerializedProperty knobProp = loaderSo.FindProperty("knobHighlights");
+        knobProp.arraySize = 2;
+        knobProp.GetArrayElementAtIndex(0).objectReferenceValue = knob1;
+        knobProp.GetArrayElementAtIndex(1).objectReferenceValue = knob2;
+
+        loaderSo.ApplyModifiedPropertiesWithoutUndo();
+    }
+
+    // One static highlight box, hidden by default — px/py/pw/ph are in
+    // ControlPanelDiagram.png's own 1600x420 source-pixel space (top-left
+    // origin), converted here to an anchoredPosition/sizeDelta against the
+    // panel RawImage's actual on-screen size so the box lines up with the
+    // real icon regardless of what panelWidth/panelHeight are chosen to be.
+    static GameObject CreatePanelHighlight(Transform parent, string name, float panelWidth, float panelHeight, float px, float py, float pw, float ph)
+    {
+        float anchoredX = (px / 1600f - 0.5f) * panelWidth;
+        float anchoredY = (0.5f - py / 420f) * panelHeight;
+        float w = pw / 1600f * panelWidth;
+        float h = ph / 420f * panelHeight;
+
+        var go = new GameObject(name);
+        go.transform.SetParent(parent, false);
+        RectTransform rt = go.AddComponent<RectTransform>();
+        rt.anchorMin = new Vector2(0.5f, 0.5f);
+        rt.anchorMax = new Vector2(0.5f, 0.5f);
+        rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.sizeDelta = new Vector2(w, h);
+        rt.anchoredPosition = new Vector2(anchoredX, anchoredY);
+
+        Color frameColor = new Color(1f, 0.85f, 0.15f, 0.95f);
+        const float thickness = 6f;
+        CreateHighlightBar(rt, "Top", frameColor, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, -thickness), Vector2.zero);
+        CreateHighlightBar(rt, "Bottom", frameColor, new Vector2(0f, 0f), new Vector2(1f, 0f), Vector2.zero, new Vector2(0f, thickness));
+        CreateHighlightBar(rt, "Left", frameColor, new Vector2(0f, 0f), new Vector2(0f, 1f), Vector2.zero, new Vector2(thickness, 0f));
+        CreateHighlightBar(rt, "Right", frameColor, new Vector2(1f, 0f), new Vector2(1f, 1f), new Vector2(-thickness, 0f), Vector2.zero);
+
+        go.SetActive(false);
+        return go;
+    }
+
+    // One solid-color bar of a highlight frame's rectangular outline — see
+    // CreatePanelHighlight. Plain Image rects rather than a 9-sliced sprite
+    // so no separate texture-import configuration is needed.
+    static void CreateHighlightBar(Transform parent, string name, Color color, Vector2 anchorMin, Vector2 anchorMax, Vector2 offsetMin, Vector2 offsetMax)
+    {
+        var barGo = new GameObject(name);
+        barGo.transform.SetParent(parent, false);
+        Image img = barGo.AddComponent<Image>();
+        img.color = color;
+        RectTransform rt = img.GetComponent<RectTransform>();
+        rt.anchorMin = anchorMin;
+        rt.anchorMax = anchorMax;
+        rt.offsetMin = offsetMin;
+        rt.offsetMax = offsetMax;
     }
 
     // Маленькая надпись в углу с реальным разрешением рендера — чтобы можно
@@ -4343,17 +4710,19 @@ public static class SceneSetup
         var textGo = new GameObject("ScreenInfoText");
         textGo.transform.SetParent(canvasGo.transform, false);
         Text text = textGo.AddComponent<Text>();
-        text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        text.font = GameFont;
         text.fontSize = 18;
         text.fontStyle = FontStyle.Bold;
-        text.alignment = TextAnchor.UpperLeft;
+        text.alignment = TextAnchor.LowerLeft;
         text.color = new Color(1f, 1f, 1f, 0.6f);
         RectTransform rt = text.GetComponent<RectTransform>();
-        rt.anchorMin = new Vector2(0f, 1f);
-        rt.anchorMax = new Vector2(0f, 1f);
-        rt.pivot = new Vector2(0f, 1f);
+        // Bottom corner now (was top-left) — out of the way of the new
+        // corner HUD fans up top.
+        rt.anchorMin = new Vector2(0f, 0f);
+        rt.anchorMax = new Vector2(0f, 0f);
+        rt.pivot = new Vector2(0f, 0f);
         rt.sizeDelta = new Vector2(300f, 30f);
-        rt.anchoredPosition = new Vector2(6f, -6f);
+        rt.anchoredPosition = new Vector2(6f, 6f);
 
         var labelGo = new GameObject("ScreenInfoLabel");
         ScreenInfoLabel label = labelGo.AddComponent<ScreenInfoLabel>();
@@ -4367,7 +4736,7 @@ public static class SceneSetup
         var go = new GameObject(name);
         go.transform.SetParent(parent, false);
         Text text = go.AddComponent<Text>();
-        text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        text.font = GameFont;
         text.fontSize = 46;
         text.fontStyle = FontStyle.Bold;
         text.alignment = TextAnchor.MiddleCenter;
@@ -4414,6 +4783,159 @@ public static class SceneSetup
         return tex;
     }
 
+    // Plain filled circle, transparent outside it — the small round "hub"
+    // badge behind the gear digit (and its empty counterpart on the right
+    // corner) sits on, per feedback that the gear+speed indicator should
+    // read as a standalone dial (circle + arc of ticks) floating in the
+    // fan's remaining middle space, not another bounded pizza-slice wedge
+    // with its own seamed edges like ДИСТАНЦИЯ/ВРЕМЯ/ОЧКИ/ТРЮКИ.
+    static Texture2D CreateCircleTexture(int size, Color fill)
+    {
+        var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+        tex.filterMode = FilterMode.Bilinear;
+        float radius = (size - 1) / 2f;
+        Vector2 center = new Vector2(radius, radius);
+        Color clear = new Color(0f, 0f, 0f, 0f);
+
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                float dist = Vector2.Distance(new Vector2(x, y), center);
+                tex.SetPixel(x, y, dist <= radius ? fill : clear);
+            }
+        }
+
+        tex.Apply();
+        return tex;
+    }
+
+    // A single pizza-slice wedge — apex at the left edge (opensRight) or
+    // right edge (!opensRight) of the canvas, symmetric around its own
+    // vertical middle, spanning angleWidthDeg total. Used as the HUD fan
+    // panels' own background (PositionWedgePanel) instead of a plain
+    // rotated rectangle, so neighbouring panels' edges actually line up
+    // and read as real pizza-slice cuts sharing one center point, not a
+    // handful of separately floating boxes. A thin bright seam right at
+    // each angular edge sells the "cut line" — same dark fill alpha
+    // (0.45) every other HUD panel already used.
+    static Texture2D CreateWedgeTexture(int size, float angleWidthDeg, bool opensRight)
+    {
+        var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+        tex.filterMode = FilterMode.Bilinear;
+        tex.wrapMode = TextureWrapMode.Clamp;
+
+        float halfAngle = angleWidthDeg * 0.5f * Mathf.Deg2Rad;
+        const float seamWidth = 0.035f; // radians of angular margin right at each edge that gets the bright seam tint
+        float apexX = opensRight ? 0f : size - 1;
+        float apexY = (size - 1) / 2f;
+        Color fill = new Color(0f, 0f, 0f, 0.45f);
+        Color seam = new Color(1f, 1f, 1f, 0.35f);
+        Color clear = new Color(0f, 0f, 0f, 0f);
+
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                float dx = opensRight ? (x - apexX) : (apexX - x);
+                float dy = y - apexY;
+                float dist = Mathf.Sqrt(dx * dx + dy * dy);
+
+                if (dx < 0f || dist > size - 1)
+                {
+                    tex.SetPixel(x, y, clear);
+                    continue;
+                }
+
+                float absAngle = Mathf.Abs(Mathf.Atan2(dy, Mathf.Max(dx, 0.0001f)));
+                if (absAngle > halfAngle)
+                    tex.SetPixel(x, y, clear);
+                else if (absAngle > halfAngle - seamWidth)
+                    tex.SetPixel(x, y, seam);
+                else
+                    tex.SetPixel(x, y, fill);
+            }
+        }
+
+        tex.Apply();
+        return tex;
+    }
+
+    // Positions/rotates a HUD fan panel's wedge background so its apex
+    // sits at the screen corner — angleDeg (the slice's own center, 0° =
+    // along the top edge, 90° = straight down the side edge) and radius
+    // work the same as the plain-rectangle fan this replaced, but pivot is
+    // now the apex itself (0,0.5) or (1,0.5) instead of the shape's center,
+    // since sizeDelta now spans the whole wedge (apex to outer edge)
+    // rather than a small floating box.
+    static void PositionWedgePanel(RectTransform rt, bool rightCorner, float angleDeg, float radius)
+    {
+        rt.anchorMin = new Vector2(rightCorner ? 1f : 0f, 1f);
+        rt.anchorMax = new Vector2(rightCorner ? 1f : 0f, 1f);
+        rt.pivot = new Vector2(rightCorner ? 1f : 0f, 0.5f);
+        rt.sizeDelta = new Vector2(radius, radius);
+        rt.anchoredPosition = new Vector2(rightCorner ? -20f : 20f, -20f); // same 20px corner inset the old edge-stack used
+        // Sign flips with the corner — the wedge texture's own "opens
+        // toward screen center" direction mirrors between corners, so the
+        // SAME physical sweep (top edge -> down the side edge as angleDeg
+        // grows) needs the opposite rotation sign on the right to match.
+        rt.localEulerAngles = new Vector3(0f, 0f, rightCorner ? angleDeg : -angleDeg);
+    }
+
+    // A wedge panel's content (label/value text, or a single tick dot)
+    // can't just fill the whole square background rect anymore — most of
+    // that square is transparent (outside the actual slice). This adds a
+    // plain child rect, anchored at the same apex point as the wedge
+    // itself, offset outward by contentRadius along a direction
+    // localAngleDeg off the wedge's own centerline (0 = straight down the
+    // centerline, same as every panel's label/value text; nonzero = used
+    // for placing several small elements — e.g. SpeedIndicator's ring of
+    // tick dots — spread across the slice's width instead of stacked on
+    // one point). Positive localAngleDeg is mirrored for the right corner
+    // along with everything else here, so a given angle always reads as
+    // "toward the same physical side" regardless of which corner it's in.
+    static RectTransform CreateWedgeContent(Transform wedgeParent, bool rightCorner, float localAngleDeg, float contentRadius, float width, float height)
+    {
+        var go = new GameObject("Content");
+        go.transform.SetParent(wedgeParent, false);
+        RectTransform rt = go.AddComponent<RectTransform>();
+        rt.anchorMin = new Vector2(rightCorner ? 1f : 0f, 0.5f);
+        rt.anchorMax = new Vector2(rightCorner ? 1f : 0f, 0.5f);
+        rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.sizeDelta = new Vector2(width, height);
+        float rad = localAngleDeg * Mathf.Deg2Rad;
+        float sign = rightCorner ? -1f : 1f;
+        rt.anchoredPosition = new Vector2(sign * contentRadius * Mathf.Cos(rad), contentRadius * Mathf.Sin(rad));
+        return rt;
+    }
+
+    // A row of small square dots along a shared radius (via CreateWedgeContent),
+    // evenly spread across ±halfSpanDeg from the hub's own centerline — the
+    // constant radius is what makes them read as a curved arc/dial rather
+    // than a scatter. Used both for SpeedIndicator's live gauge and its
+    // empty counterpart on the other corner — callers wire up colors
+    // themselves (or leave them at this dim default for the empty one).
+    static Image[] CreateTickRing(Transform wedgeParent, bool rightCorner, int count, float radius, float halfSpanDeg)
+    {
+        var ticks = new Image[count];
+        for (int i = 0; i < count; i++)
+        {
+            float angle = count > 1 ? Mathf.Lerp(-halfSpanDeg, halfSpanDeg, (float)i / (count - 1)) : 0f;
+            RectTransform tickContentRt = CreateWedgeContent(wedgeParent, rightCorner, angle, radius, 22f, 22f);
+            var tickGo = new GameObject("Tick" + i);
+            tickGo.transform.SetParent(tickContentRt, false);
+            Image tick = tickGo.AddComponent<Image>();
+            tick.color = new Color(1f, 1f, 1f, 0.15f);
+            RectTransform tickRt = tick.GetComponent<RectTransform>();
+            tickRt.anchorMin = Vector2.zero;
+            tickRt.anchorMax = Vector2.one;
+            tickRt.offsetMin = Vector2.zero;
+            tickRt.offsetMax = Vector2.zero;
+            ticks[i] = tick;
+        }
+        return ticks;
+    }
+
     // Solid white right-pointing triangle (flat edge on the left, point on
     // the right), alpha elsewhere — used as an arrowhead via RawImage
     // (tinted through its own .color) instead of a Unicode "▶" glyph, which
@@ -4445,17 +4967,79 @@ public static class SceneSetup
 
     static Texture2D CreateDashTexture()
     {
-        // 1px wide, 8px tall: first half white (dash), second half road-gray (gap).
-        var tex = new Texture2D(1, 8, TextureFormat.RGBA32, false);
+        // Wider and taller than a flat 1x8 (dash = solid white, gap = solid
+        // road-gray, razor-straight cut between them) — the extra
+        // resolution leaves room for real paint grain and a ragged, worn
+        // edge on the stripe instead of a perfectly clean rectangle, per
+        // feedback that the lane markings read as too flat/plastic. Not
+        // tiled across its width (mainTextureScale.x stays 1, see
+        // CreateDashedDivider — the whole width is just stretched once
+        // across the divider), so nothing here needs to line up edge-to-
+        // edge horizontally; only top-to-bottom (the repeating dash/gap
+        // cycle) has to.
+        //
+        // DashVariantCount distinctly-styled bands (clean edge, heavily
+        // chipped, wavy worn edge) are stacked vertically into one texture
+        // — CreateDashedDivider tiles this so a full texture repeat spans
+        // DashVariantCount dash+gap cycles, so consecutive dashes along the
+        // road cycle through the styles instead of every dash being an
+        // identical copy of the same one (per feedback: "add randomness —
+        // make several types of distortion and alternate them").
+        const int width = 16;
+        const int bandHeight = 32;
+        var tex = new Texture2D(width, bandHeight * DashVariantCount, TextureFormat.RGBA32, false);
         tex.wrapMode = TextureWrapMode.Repeat;
-        tex.filterMode = FilterMode.Point;
+        tex.filterMode = FilterMode.Bilinear;
 
-        Color gap = new Color(0.25f, 0.25f, 0.25f);
-        for (int y = 0; y < 8; y++)
-            tex.SetPixel(0, y, y < 5 ? Color.white : gap);
+        DrawDashBand(tex, 0 * bandHeight, width, bandHeight, seed: 777, edgeJitter: 3, chipChance: 0.05, wavy: false);
+        DrawDashBand(tex, 1 * bandHeight, width, bandHeight, seed: 991, edgeJitter: 6, chipChance: 0.12, wavy: false);
+        DrawDashBand(tex, 2 * bandHeight, width, bandHeight, seed: 313, edgeJitter: 2, chipChance: 0.08, wavy: true);
 
         tex.Apply();
         return tex;
+    }
+
+    // One dash+gap cycle, written into tex at row yOffset..yOffset+height.
+    // edgeJitter/chipChance/wavy vary per band so each style genuinely
+    // looks different rather than just reseeding the same noise pattern —
+    // wavy adds a smooth sine undulation to the dash's leading edge on top
+    // of (a smaller amount of) the same per-column random jitter the other
+    // bands use, reading as a distinct "worn groove" rather than more chips.
+    static void DrawDashBand(Texture2D tex, int yOffset, int width, int height, int seed, int edgeJitter, double chipChance, bool wavy)
+    {
+        var rng = new System.Random(seed);
+        Color gap = new Color(0.25f, 0.25f, 0.25f); // matches CreateRoadTexture's own base gray, so the gap blends into the asphalt instead of reading as a flat block
+        Color paint = new Color(0.92f, 0.92f, 0.88f);
+        int baseDashEnd = Mathf.RoundToInt(height * 0.625f); // same 5:3 dash:gap ratio the old 8px version used
+
+        // Per-column dash length varies a little — the stripe's leading
+        // edge reads as chipped/worn instead of a perfectly straight cut.
+        var dashEndPerColumn = new int[width];
+        for (int x = 0; x < width; x++)
+        {
+            int wave = wavy ? Mathf.RoundToInt(Mathf.Sin(x / (float)width * Mathf.PI * 2f) * 4f) : 0;
+            dashEndPerColumn[x] = Mathf.Clamp(baseDashEnd + wave + rng.Next(-edgeJitter, edgeJitter + 1), 1, height - 1);
+        }
+
+        for (int x = 0; x < width; x++)
+        {
+            for (int y = 0; y < height; y++)
+            {
+                bool isDash = y < dashEndPerColumn[x];
+                // A handful of small flecks worn through to bare road here
+                // and there inside the dash itself, not just at its edge.
+                if (isDash && rng.NextDouble() < chipChance)
+                    isDash = false;
+
+                Color baseColor = isDash ? paint : gap;
+                float jitter = ((float)rng.NextDouble() - 0.5f) * (isDash ? 0.1f : 0.12f);
+                Color c = new Color(
+                    Mathf.Clamp01(baseColor.r + jitter),
+                    Mathf.Clamp01(baseColor.g + jitter),
+                    Mathf.Clamp01(baseColor.b + jitter));
+                tex.SetPixel(x, yOffset + y, c);
+            }
+        }
     }
 
     // Dashed route line(s) traced along one or more parametric curves — the

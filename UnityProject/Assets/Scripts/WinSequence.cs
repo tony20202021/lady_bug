@@ -8,13 +8,22 @@ public class WinSequence : MonoBehaviour
 {
     public static WinSequence Instance { get; private set; }
 
-    // TEMPORARY, for faster debug/test runs — revert to 100f for real play.
-    [SerializeField] private float winDistanceKm = 1f;
+    [SerializeField] private float winDistanceKm = 10f;
 
     // Exposed so the start-screen "ЦЕЛЬ" instructions can show the real
     // distance instead of a hardcoded number that'd lie while this is
-    // temporarily lowered for testing.
+    // temporarily lowered for testing. Reflects winDistanceKm live, so it
+    // also picks up any extension from a "flap to continue" choice below.
     public float WinDistanceKm => winDistanceKm;
+
+    // "Flap to keep going" prompt at the finish line — reaching the goal
+    // clears the road and offers a few seconds to flap before committing to
+    // the real ending. See OfferContinue.
+    [SerializeField] private GameObject continuePromptRoot;
+    [SerializeField] private Text continueCountdownText;
+    [SerializeField] private float continueDistanceKm = 10f;
+    private const int ContinueCountdownStart = 10;
+    private bool _awaitingContinueDecision;
 
     // Shown first, before controls are disabled and anything starts fading
     // out — a plain "nothing's responding anymore" moment otherwise, with
@@ -22,21 +31,21 @@ public class WinSequence : MonoBehaviour
     [SerializeField] private GameObject finishText;
     [SerializeField] private float finishTextDuration = 1.6f;
 
+    // Plain, unanimated hold right before the webcam screen (see
+    // CaptureRecordPhoto) — a beat of "here's why we're about to point a
+    // camera at you" before it actually starts, instead of the capture
+    // screen just appearing out of nowhere.
+    [SerializeField] private GameObject newRecordAnnounceText;
+    [SerializeField] private float newRecordAnnounceDuration = 5f;
+
     [SerializeField] private RectTransform winTextRoot;
     // How long the title sits alone on screen at the very end, once
     // everything else (stats, records, leaderboard tables) has already
     // finished and hidden — see the end of RunSequence.
     [SerializeField] private float finalTitleHoldDuration = 4f;
-    // Shared dark-tint backdrop behind both the record reveal and the stats
-    // pages below it — same treatment every other table in the game uses,
-    // shown for the span covering both (see ShowRecordAndStats).
+    // Shared dark-tint backdrop behind the stats pages — same treatment
+    // every other table in the game uses.
     [SerializeField] private GameObject statsBackdrop;
-    // Record reveal — one checkbox row (CreateWinCheckRow), text swapped as
-    // each newly-qualifying category is announced. recordRowRoot is the
-    // row's own container (checkbox + text together) for show/hide.
-    [SerializeField] private GameObject recordRowRoot;
-    [SerializeField] private Text recordText;
-    [SerializeField] private float recordRevealDuration = 2.5f;
     // Stats pages — a title plus a pool of checkbox rows (CreateWinCheckRow),
     // matching the checklist style already used elsewhere (СУТЬ ИГРЫ, ЦЕЛЬ)
     // instead of one big multi-line text block. Each page uses however many
@@ -49,15 +58,19 @@ public class WinSequence : MonoBehaviour
     // СОБРАНО/СБИТО use this icon grid instead of the checkbox rows above —
     // one small icon per unit collected/hit (repeated per count) plus a
     // single "ИТОГО ±N" line, no per-type text breakdown. See
-    // ShowIconStatsPage.
+    // ShowIconStatsPage. Once a page's total gets too big to draw one icon
+    // per unit, it collapses to one icon per TYPE with a "×N" badge
+    // (statsIconCountLabels, matched 1:1 against the first few
+    // statsIconSlots) instead.
     [SerializeField] private RawImage[] statsIconSlots;
+    [SerializeField] private Text[] statsIconCountLabels;
     [SerializeField] private Text statsTotalText;
-    [SerializeField] private Texture2D cherryIcon;
-    [SerializeField] private Texture2D heartIcon;
-    [SerializeField] private Texture2D flowerIcon;
-    [SerializeField] private Texture2D dogIcon;
-    [SerializeField] private Texture2D catIcon;
-    [SerializeField] private Texture2D bicycleIcon;
+    // Stand-in for the rare case AchievementStats recorded a null texture
+    // (its Renderer/Material couldn't be read at collision time) — keeps
+    // that entry visible on the page instead of it silently vanishing
+    // while still counting toward ИТОГО (see the old "empty page, -1
+    // total" bug this replaced).
+    [SerializeField] private Texture2D mysteryIcon;
     // Container for the tables below (background + all 4 pages) — kept
     // inactive except while ShowLeaderboardTables is actually running, so
     // its background panel doesn't sit visible as an empty tinted box from
@@ -86,12 +99,14 @@ public class WinSequence : MonoBehaviour
         Instance = this;
         if (finishText != null)
             finishText.SetActive(false);
+        if (newRecordAnnounceText != null)
+            newRecordAnnounceText.SetActive(false);
+        if (continuePromptRoot != null)
+            continuePromptRoot.SetActive(false);
         if (winTextRoot != null)
             winTextRoot.gameObject.SetActive(false);
         if (statsBackdrop != null)
             statsBackdrop.SetActive(false);
-        if (recordRowRoot != null)
-            recordRowRoot.SetActive(false);
         if (statsTitle != null)
             statsTitle.gameObject.SetActive(false);
         if (statsRowRoots != null)
@@ -102,18 +117,97 @@ public class WinSequence : MonoBehaviour
             foreach (var icon in statsIconSlots)
                 if (icon != null)
                     icon.gameObject.SetActive(false);
+        if (statsIconCountLabels != null)
+            foreach (var label in statsIconCountLabels)
+                if (label != null)
+                    label.gameObject.SetActive(false);
         if (statsTotalText != null)
             statsTotalText.gameObject.SetActive(false);
     }
 
     public void TryTrigger(float distanceKm)
     {
-        if (_triggered || distanceKm < winDistanceKm)
+        if (_triggered || _awaitingContinueDecision || distanceKm < winDistanceKm)
             return;
+
+        StartCoroutine(OfferContinue());
+    }
+
+    // Reaching the goal doesn't commit straight to the real ending anymore —
+    // the road clears out and this offers a few seconds to flap and keep
+    // going instead, per feedback that an abrupt "you're done" the instant
+    // the distance ticks over felt too sudden. No flap in time -> the usual
+    // RunSequence plays exactly as before. A flap -> the goal just moves
+    // further out and normal play resumes, no different from never having
+    // reached it yet.
+    private IEnumerator OfferContinue()
+    {
+        _awaitingContinueDecision = true;
+
+        // Same idea as RunSequence's own entity cleanup, just without the
+        // fade — this is meant to read as "the road pausing to ask a
+        // question", not the start of the real ending.
+        foreach (var spawner in FindObjectsOfType<EntitySpawner>())
+            spawner.enabled = false;
+        foreach (var entity in FindObjectsOfType<MovingEntity>())
+            if (entity != null)
+                Destroy(entity.gameObject);
+
+        // Same gradual ease-to-a-stop RunSequence itself uses once the
+        // fly-away finishes (EndWinBoost) — the road visibly slowing down
+        // sells "the run is pausing to ask something" much better than
+        // just clearing obstacles while still racing along at full speed.
+        if (SpeedController.Instance != null)
+            SpeedController.Instance.EndWinBoost();
+
+        if (continuePromptRoot != null)
+            continuePromptRoot.SetActive(true);
+
+        bool flapped = false;
+        for (int n = ContinueCountdownStart; n >= 1 && !flapped; n--)
+        {
+            if (continueCountdownText != null)
+                continueCountdownText.text = n.ToString();
+
+            float t = 0f;
+            while (t < 1f)
+            {
+                t += Time.deltaTime;
+                if (AnyPlayerFlapping())
+                {
+                    flapped = true;
+                    break;
+                }
+                yield return null;
+            }
+        }
+
+        if (continuePromptRoot != null)
+            continuePromptRoot.SetActive(false);
+
+        _awaitingContinueDecision = false;
+
+        if (flapped)
+        {
+            winDistanceKm += continueDistanceKm;
+            if (SpeedController.Instance != null)
+                SpeedController.Instance.CancelDecelerate();
+            foreach (var spawner in FindObjectsOfType<EntitySpawner>())
+                spawner.enabled = true;
+            yield break;
+        }
 
         _triggered = true;
         float winTimestamp = GameTimer.Instance != null ? GameTimer.Instance.Elapsed : Time.time;
         StartCoroutine(RunSequence(winTimestamp));
+    }
+
+    private static bool AnyPlayerFlapping()
+    {
+        foreach (var pc in FindObjectsOfType<PlayerController>())
+            if (pc != null && pc.enabled && pc.IsJumpInputHeld)
+                return true;
+        return false;
     }
 
     private IEnumerator RunSequence(float winTimestamp)
@@ -167,6 +261,14 @@ public class WinSequence : MonoBehaviour
             // scale. Force upright here so the fly-away never carries a
             // stuck sideways/upside-down spin with it.
             pc.transform.rotation = Quaternion.identity;
+            // Same freeze risk if the win condition landed mid-crash-blink
+            // (PlayerController's own invincibility flicker) — the sprite
+            // could be off at that exact instant and never get flipped back
+            // on, since disabling the component right below stops it from
+            // ever finishing that cycle on its own (see PlayerController.
+            // ForceVisible's own comment) — the ladybug itself vanished,
+            // leaving only its shadow flying off, without this.
+            pc.ForceVisible();
             pc.enabled = false; // stops input AND OnTriggerEnter — no more collisions
         }
 
@@ -185,15 +287,6 @@ public class WinSequence : MonoBehaviour
             if (gestureCanvas != null)
                 gestureCanvas.SetActive(false);
         }
-
-        // Small live "ТОП" corner panel — same reasoning as the gesture HUD
-        // above (found by name rather than wired, matching that precedent):
-        // the real leaderboard tables shown later in this recap already
-        // cover the same information in full, so this one just clutters
-        // the fly-away/recap instead of adding anything.
-        GameObject topScoresPanel = GameObject.Find("TopScoresPanel");
-        if (topScoresPanel != null)
-            topScoresPanel.SetActive(false);
 
         if (SpeedController.Instance != null)
             SpeedController.Instance.BeginWinBoost();
@@ -230,27 +323,26 @@ public class WinSequence : MonoBehaviour
 
             // ranksByCategory feeds ИТОГИ ЗАБЕГА's own inline "НОВЫЙ РЕКОРД
             // ТОП-N" tags below (every category's placement for this run,
-            // 0 = not top 10).
+            // 0 = not top 10) — the only place a "new record" gets shown
+            // now, see CaptureRecordPhoto's own comment on why the old
+            // separate reveal line was dropped.
             newRecords = HighScoreManager.Instance.ReportRun(winTimestamp, score, tricks, maxSpeed, out ranksByCategory);
-            // RevealRecords (photo capture included) should only fire for
-            // an actual "record" the way the player sees it on ИТОГИ
-            // ЗАБЕГА — top-3, not any top-10 placement. HighScoreManager
-            // still tracks/returns the full top-10 board either way (the
-            // leaderboard tables shown later need that full depth), this
-            // just narrows what counts as reveal/photo-worthy here.
+            // The photo should only snap for an actual "record" the way the
+            // player sees it on ИТОГИ ЗАБЕГА — top-3, not any top-10
+            // placement. HighScoreManager still tracks/returns the full
+            // top-10 board either way (the leaderboard tables shown later
+            // need that full depth), this just narrows what counts as
+            // photo-worthy here.
             newRecords = newRecords.FindAll(r => r.Rank <= 3);
         }
-        // Fixed order for the whole post-win recap: run stats, then rank
-        // placements, then the photo, then the real leaderboard tables once
-        // — finally back to the start screen (which has its own copy of the
-        // top results plus instructions). Any button/gesture press at any
-        // point during this collapses straight to that reload instead of
-        // waiting out the rest.
+        // Fixed order for the whole post-win recap: run stats (which
+        // already show any new-record tags inline), then the photo, then
+        // the real leaderboard tables once — finally back to the start
+        // screen (which has its own copy of the top results plus
+        // instructions). Any button/gesture press at any point during this
+        // collapses straight to that reload instead of waiting out the rest.
         _skipToEnd = false;
 
-        // Backdrop spans both stages below (record reveal, then stats
-        // pages) so it reads as one continuous table rather than popping in
-        // and out between them.
         if (statsBackdrop != null)
             statsBackdrop.SetActive(true);
         try
@@ -258,8 +350,17 @@ public class WinSequence : MonoBehaviour
             if (statsTitle != null)
                 yield return StartCoroutine(ShowStatsPages(winTimestamp, ranksByCategory));
 
-            if (!_skipToEnd && newRecords != null && newRecords.Count > 0 && recordText != null)
-                yield return StartCoroutine(RevealRecords(newRecords));
+            // Hidden from here through the leaderboard tables below — its
+            // box overlapped the top of that (much bigger) table, and it
+            // has no business floating behind the photo-capture screen
+            // either (it used to sit there undimmed, right between the
+            // record message and the smile caption). Brought back right at
+            // the very end so it's still the last thing on screen.
+            if (winTextRoot != null)
+                winTextRoot.gameObject.SetActive(false);
+
+            if (!_skipToEnd && newRecords != null && newRecords.Count > 0)
+                yield return StartCoroutine(CaptureRecordPhoto(newRecords));
         }
         finally
         {
@@ -269,6 +370,9 @@ public class WinSequence : MonoBehaviour
 
         if (!_skipToEnd && leaderboardPages != null)
             yield return StartCoroutine(ShowLeaderboardTables());
+
+        if (winTextRoot != null)
+            winTextRoot.gameObject.SetActive(true);
 
         // Once the leaderboard tables hide, all that's left on screen is
         // the plain "ВЫ ПРОШЛИ ДО КОНЦА" title — a good, symbolic ending
@@ -321,27 +425,32 @@ public class WinSequence : MonoBehaviour
 
         // СОБРАНО/СБИТО: a small icon per unit collected/hit (repeated per
         // count) instead of a per-type text breakdown — see
-        // ShowIconStatsPage. A category with no known icon (anything past
-        // AchievementStats' own named buckets) still counts toward the
-        // ИТОГО total, it just doesn't get individual icons since we don't
-        // know which specific object it was.
+        // ShowIconStatsPage, which itself collapses to one icon per TYPE
+        // plus a "×N" badge once a page's total is too big to draw one
+        // icon per unit. Types come straight from AchievementStats' own
+        // dictionaries (keyed by the exact texture each object was shown
+        // with, see PlayerController.EntityIcon) — every distinct object
+        // ever collided with gets its own real picture here, not a fixed
+        // shortlist of named categories.
         if (!_skipToEnd && stats != null)
         {
-            var collectedIcons = new List<Texture2D>();
-            AddIcons(collectedIcons, cherryIcon, stats.CherriesCollected);
-            AddIcons(collectedIcons, heartIcon, stats.HeartsCollected);
-            AddIcons(collectedIcons, flowerIcon, stats.FlowersCollected);
+            var collectedTypes = new List<(Texture2D icon, int count)>();
+            foreach (var kv in stats.CollectedByIcon)
+                collectedTypes.Add((kv.Key, kv.Value));
+            if (stats.UnknownCollected > 0)
+                collectedTypes.Add((mysteryIcon, stats.UnknownCollected));
             if (stats.TotalCollected > 0)
-                yield return StartCoroutine(ShowIconStatsPage("СОБРАНО", collectedIcons, "ИТОГО +" + stats.TotalCollected));
+                yield return StartCoroutine(ShowIconStatsPage("СОБРАНО", collectedTypes, "ИТОГО +" + stats.TotalCollected));
 
             if (!_skipToEnd)
             {
-                var hitIcons = new List<Texture2D>();
-                AddIcons(hitIcons, dogIcon, stats.DogsHit);
-                AddIcons(hitIcons, catIcon, stats.CatsHit);
-                AddIcons(hitIcons, bicycleIcon, stats.BicyclesHit);
+                var hitTypes = new List<(Texture2D icon, int count)>();
+                foreach (var kv in stats.HitByIcon)
+                    hitTypes.Add((kv.Key, kv.Value));
+                if (stats.UnknownHit > 0)
+                    hitTypes.Add((mysteryIcon, stats.UnknownHit));
                 if (stats.TotalHit > 0)
-                    yield return StartCoroutine(ShowIconStatsPage("СБИТО", hitIcons, "ИТОГО -" + stats.TotalHit));
+                    yield return StartCoroutine(ShowIconStatsPage("СБИТО", hitTypes, "ИТОГО -" + stats.TotalHit));
             }
 
             if (!_skipToEnd)
@@ -361,14 +470,6 @@ public class WinSequence : MonoBehaviour
 
         if (statsTitle != null)
             statsTitle.gameObject.SetActive(false);
-    }
-
-    private static void AddIcons(List<Texture2D> list, Texture2D icon, int count)
-    {
-        if (icon == null)
-            return;
-        for (int i = 0; i < count; i++)
-            list.Add(icon);
     }
 
     private IEnumerator ShowTextStatsPage(string title, List<string> lines)
@@ -393,26 +494,70 @@ public class WinSequence : MonoBehaviour
                     root.SetActive(false);
     }
 
-    // СОБРАНО/СБИТО's own page kind — a grid of small icons (one per unit,
-    // repeated per count, capped at however many slots the pool has) plus
-    // one "ИТОГО ±N" line, no per-type text.
-    private IEnumerator ShowIconStatsPage(string title, List<Texture2D> icons, string totalLine)
+    // Above this many total units, ShowIconStatsPage collapses to one icon
+    // per TYPE with a "×N" badge instead of one icon per unit — a wall of
+    // dozens of tiny repeated icons doesn't read any better than the count
+    // would, and would blow well past the icon pool besides.
+    private const int IconGroupThreshold = 20;
+
+    // СОБРАНО/СБИТО's own page kind — normally a grid of small icons (one
+    // per unit, repeated per count) plus one "ИТОГО ±N" line, no per-type
+    // text. Once a page's total exceeds IconGroupThreshold, groups instead:
+    // one icon per type plus a "×N" badge (statsIconCountLabels).
+    private IEnumerator ShowIconStatsPage(string title, List<(Texture2D icon, int count)> types, string totalLine)
     {
         if (statsTitle != null)
             statsTitle.text = title;
 
+        int totalUnits = 0;
+        foreach (var t in types)
+            if (t.icon != null)
+                totalUnits += t.count;
+        bool grouped = totalUnits > IconGroupThreshold;
+
+        int slot = 0;
         if (statsIconSlots != null)
         {
-            for (int i = 0; i < statsIconSlots.Length; i++)
+            if (grouped)
             {
-                if (statsIconSlots[i] == null)
-                    continue;
-                bool used = i < icons.Count;
-                statsIconSlots[i].gameObject.SetActive(used);
-                if (used)
-                    statsIconSlots[i].texture = icons[i];
+                foreach (var t in types)
+                {
+                    if (t.icon == null || t.count <= 0 || slot >= statsIconSlots.Length)
+                        continue;
+                    statsIconSlots[slot].gameObject.SetActive(true);
+                    statsIconSlots[slot].texture = t.icon;
+                    if (statsIconCountLabels != null && slot < statsIconCountLabels.Length && statsIconCountLabels[slot] != null)
+                    {
+                        statsIconCountLabels[slot].text = "×" + t.count;
+                        statsIconCountLabels[slot].gameObject.SetActive(true);
+                    }
+                    slot++;
+                }
             }
+            else
+            {
+                foreach (var t in types)
+                {
+                    if (t.icon == null)
+                        continue;
+                    for (int i = 0; i < t.count && slot < statsIconSlots.Length; i++)
+                    {
+                        statsIconSlots[slot].gameObject.SetActive(true);
+                        statsIconSlots[slot].texture = t.icon;
+                        slot++;
+                    }
+                }
+            }
+            for (int i = slot; i < statsIconSlots.Length; i++)
+                statsIconSlots[i].gameObject.SetActive(false);
         }
+        // Ungrouped: no badges at all. Grouped: only whichever badges were
+        // actually assigned above (slot of them) stay on.
+        if (statsIconCountLabels != null)
+            for (int i = grouped ? slot : 0; i < statsIconCountLabels.Length; i++)
+                if (statsIconCountLabels[i] != null)
+                    statsIconCountLabels[i].gameObject.SetActive(false);
+
         if (statsTotalText != null)
         {
             statsTotalText.text = totalLine;
@@ -425,6 +570,10 @@ public class WinSequence : MonoBehaviour
             foreach (var icon in statsIconSlots)
                 if (icon != null)
                     icon.gameObject.SetActive(false);
+        if (statsIconCountLabels != null)
+            foreach (var label in statsIconCountLabels)
+                if (label != null)
+                    label.gameObject.SetActive(false);
         if (statsTotalText != null)
             statsTotalText.gameObject.SetActive(false);
     }
@@ -505,49 +654,44 @@ public class WinSequence : MonoBehaviour
         return false;
     }
 
-    // Shows each category the run just qualified for, one at a time — a
-    // run can land in several of the 4 leaderboards at once (e.g. both
-    // fastest time and highest score), so they're revealed in sequence
-    // instead of all at once. Each reveal is followed by a webcam capture
-    // (smile + 5s countdown) attached to every qualifying leaderboard slot,
-    // if a camera is available — see PlayerPhotoCapture. One photo for the
-    // whole run, not one per category: sitting through a full ~10s capture
-    // (5s silent + 5s countdown) once per qualifying category — up to 4 in
-    // a row for a run that sweeps every leaderboard — read as the capture
-    // being stuck repeating instead of finishing.
-    private IEnumerator RevealRecords(List<HighScoreManager.NewRecord> records)
+    // A run can land in several of the 4 leaderboards at once (e.g. both
+    // fastest time and highest score) — one photo covers the whole run
+    // regardless, not one per category (sitting through a full ~10s
+    // capture per qualifying category, up to 4 in a row for a run that
+    // sweeps every leaderboard, read as the capture being stuck repeating
+    // instead of finishing). No separate on-screen "NEW RECORD: X — N
+    // МЕСТО" reveal anymore — ИТОГИ ЗАБЕГА's own inline tags already show
+    // that, this just handles the webcam capture (smile + 5s countdown, if
+    // a camera is available — see PlayerPhotoCapture) that used to follow it.
+    private IEnumerator CaptureRecordPhoto(List<HighScoreManager.NewRecord> records)
     {
-        if (recordRowRoot != null)
-            recordRowRoot.SetActive(true);
-        foreach (var record in records)
+        if (PlayerPhotoCapture.Instance == null || records.Count == 0)
+            yield break;
+
+        HighScoreManager.NewRecord best = records[0];
+        foreach (var r in records)
+            if (r.Rank < best.Rank)
+                best = r; // headline the strongest placement (rank 1 if any)
+
+        string message = best.Rank == 1
+            ? "НОВЫЙ РЕКОРД!\n" + best.CategoryName
+            : best.CategoryName + " — " + best.Rank + " МЕСТО!";
+
+        if (newRecordAnnounceText != null)
         {
-            if (recordText != null)
-                recordText.text = "НОВЫЙ РЕКОРД: " + record.CategoryName + " — " + record.Rank + " МЕСТО ИЗ 10";
-            yield return new WaitForSeconds(recordRevealDuration);
+            newRecordAnnounceText.SetActive(true);
+            yield return new WaitForSeconds(newRecordAnnounceDuration);
+            newRecordAnnounceText.SetActive(false);
         }
-        if (recordRowRoot != null)
-            recordRowRoot.SetActive(false);
 
-        if (PlayerPhotoCapture.Instance != null && records.Count > 0)
+        string savedPath = null;
+        yield return StartCoroutine(PlayerPhotoCapture.Instance.CaptureForRecord(message, p => savedPath = p));
+        if (savedPath != null && HighScoreManager.Instance != null)
         {
-            HighScoreManager.NewRecord best = records[0];
+            // Same photo represents the whole run — attach it to every
+            // category it qualified for, not just the headline one.
             foreach (var r in records)
-                if (r.Rank < best.Rank)
-                    best = r; // headline the strongest placement (rank 1 if any)
-
-            string message = best.Rank == 1
-                ? "НОВЫЙ РЕКОРД!\n" + best.CategoryName
-                : best.CategoryName + " — " + best.Rank + " МЕСТО!";
-
-            string savedPath = null;
-            yield return StartCoroutine(PlayerPhotoCapture.Instance.CaptureForRecord(message, p => savedPath = p));
-            if (savedPath != null && HighScoreManager.Instance != null)
-            {
-                // Same photo represents the whole run — attach it to every
-                // category it qualified for, not just the headline one.
-                foreach (var r in records)
-                    HighScoreManager.Instance.SetPhotoPath(r.CategoryIndex, r.Rank, savedPath);
-            }
+                HighScoreManager.Instance.SetPhotoPath(r.CategoryIndex, r.Rank, savedPath);
         }
     }
 

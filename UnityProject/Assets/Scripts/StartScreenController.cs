@@ -28,8 +28,21 @@ public class StartScreenController : MonoBehaviour
     [SerializeField] private Image controllerRowBg;
 
     [SerializeField] private Image startBg;
+    [SerializeField] private Text startText;
+    [SerializeField] private Image trainingBg;
+    [SerializeField] private Text trainingText;
     [SerializeField] private Outline startOutline;
     [SerializeField] private Image startRowBg;
+
+    // Placeholder screen for ТРЕНИРОВКА (genuinely empty for now, see
+    // SceneSetup.CreateStartScreen) — this menu just switches to it and
+    // watches for the hold-to-exit gesture back, same as DuckToExitController
+    // does for quitting a real run, but simpler (no confirm dialog, just
+    // straight back to this menu).
+    [SerializeField] private GameObject trainingCanvasRoot;
+    [SerializeField] private Text trainingExitCountdownText;
+    private const float TrainingExitHoldDuration = 5f;
+    private float _trainingHoldTimer;
 
     [SerializeField] private Text notImplementedText;
 
@@ -49,12 +62,6 @@ public class StartScreenController : MonoBehaviour
     // chrome) and revealed once BeginGame fires.
     [SerializeField] private GameObject gestureCanvasRight;
     [SerializeField] private GameObject gestureCanvasLeft;
-
-    // Live in-game "ТОП" panel — also gameplay HUD, not menu chrome, and
-    // its own semi-transparent background bled through the (also
-    // semi-transparent) carousel behind the menu otherwise. The carousel's
-    // own top-results pages already show the same info cleanly.
-    [SerializeField] private GameObject topScoresPanel;
 
     [SerializeField] private AudioSource musicSource;
     [SerializeField] private float musicFadeOutDuration = 2.5f;
@@ -78,6 +85,7 @@ public class StartScreenController : MonoBehaviour
 
     private int _selectedPlayers = 2;
     private int _selectedController; // 0 = keyboard, 1 = distance sensors, 2 = simulator
+    private int _selectedStartOption; // 0 = СТАРТ, 1 = ТРЕНИРОВКА
     private int _row;
 
     // TEMPORARY, for faster debug/test cycling — revert to 10f for real play.
@@ -125,8 +133,6 @@ public class StartScreenController : MonoBehaviour
             gestureCanvasRight.SetActive(false);
         if (gestureCanvasLeft != null)
             gestureCanvasLeft.SetActive(false);
-        if (topScoresPanel != null)
-            topScoresPanel.SetActive(false);
 
         // Nothing's chosen a controller yet at this point (that's what row 1
         // picks), so the menu itself listens for whichever gesture source is
@@ -159,6 +165,12 @@ public class StartScreenController : MonoBehaviour
 
     private void Update()
     {
+        if (trainingCanvasRoot != null && trainingCanvasRoot.activeSelf)
+        {
+            UpdateTrainingScreen();
+            return;
+        }
+
         UpdateCarousel();
 
         bool left = Input.GetKeyDown(KeyCode.LeftArrow) || Input.GetKeyDown(KeyCode.A);
@@ -190,6 +202,10 @@ public class StartScreenController : MonoBehaviour
                 int delta = right ? 1 : -1;
                 _selectedController = (_selectedController + delta + ControllerCount) % ControllerCount;
             }
+            else if (_row == 2)
+            {
+                _selectedStartOption = _selectedStartOption == 0 ? 1 : 0;
+            }
             UpdateVisuals();
         }
 
@@ -205,7 +221,74 @@ public class StartScreenController : MonoBehaviour
         }
 
         if (confirm && _row == 2)
-            BeginGame();
+        {
+            if (_selectedStartOption == 0)
+                BeginGame();
+            else
+                BeginTraining();
+        }
+    }
+
+    // Duck-held (real gesture or the same Down/S keys the menu itself
+    // reads) for TrainingExitHoldDuration — mirrors DuckToExitController's
+    // hold-to-confirm feel, just without its confirm dialog: this screen
+    // has nothing on it to lose, so holding down just takes you straight
+    // back to the menu.
+    private void UpdateTrainingScreen()
+    {
+        bool holding = Input.GetKey(KeyCode.DownArrow) || Input.GetKey(KeyCode.S)
+            || IsDuckHeld(gestureRight) || IsDuckHeld(gestureLeft);
+
+        if (!holding)
+        {
+            _trainingHoldTimer = 0f;
+            if (trainingExitCountdownText != null)
+                trainingExitCountdownText.gameObject.SetActive(false);
+            return;
+        }
+
+        _trainingHoldTimer += Time.deltaTime;
+
+        if (trainingExitCountdownText != null)
+        {
+            trainingExitCountdownText.gameObject.SetActive(true);
+            int secondsLeft = Mathf.Clamp(Mathf.CeilToInt(TrainingExitHoldDuration - _trainingHoldTimer), 1, Mathf.CeilToInt(TrainingExitHoldDuration));
+            trainingExitCountdownText.text = secondsLeft.ToString();
+        }
+
+        if (_trainingHoldTimer >= TrainingExitHoldDuration)
+        {
+            _trainingHoldTimer = 0f;
+            ExitTraining();
+        }
+    }
+
+    private void BeginTraining()
+    {
+        // Not canvasRoot.SetActive(false) — this whole script lives on
+        // canvasRoot itself (see SceneSetup.CreateStartScreen), so that
+        // would disable this component along with it, and Update (which is
+        // what's supposed to detect the hold-to-exit on the OTHER screen)
+        // would simply stop being called at all. Same trick BeginGame
+        // already uses for the same reason: hide the visuals via the
+        // Canvas component, keep the GameObject (and this script) alive.
+        Canvas startCanvas = canvasRoot != null ? canvasRoot.GetComponent<Canvas>() : null;
+        if (startCanvas != null)
+            startCanvas.enabled = false;
+        if (trainingCanvasRoot != null)
+            trainingCanvasRoot.SetActive(true);
+        _trainingHoldTimer = 0f;
+    }
+
+    private void ExitTraining()
+    {
+        if (trainingCanvasRoot != null)
+            trainingCanvasRoot.SetActive(false);
+        if (trainingExitCountdownText != null)
+            trainingExitCountdownText.gameObject.SetActive(false);
+        Canvas startCanvas = canvasRoot != null ? canvasRoot.GetComponent<Canvas>() : null;
+        if (startCanvas != null)
+            startCanvas.enabled = true;
     }
 
     private void UpdateVisuals()
@@ -259,8 +342,16 @@ public class StartScreenController : MonoBehaviour
             startOutline.effectColor = _row == 2 ? FocusOutline : IdleOutline;
         if (startRowBg != null)
             startRowBg.color = _row == 2 ? RowFocusColor : RowIdleColor;
+
+        bool startSelected = _selectedStartOption == 0;
         if (startBg != null)
-            startBg.color = _row == 2 ? SelectedColor : UnselectedColor;
+            startBg.color = startSelected ? SelectedColor : UnselectedColor;
+        if (trainingBg != null)
+            trainingBg.color = startSelected ? UnselectedColor : SelectedColor;
+        if (startText != null)
+            startText.text = (startSelected ? "[X] " : "[ ] ") + "СТАРТ";
+        if (trainingText != null)
+            trainingText.text = (startSelected ? "[ ] " : "[X] ") + "ТРЕНИРОВКА";
 
         // Any navigation clears the "not implemented" message from a
         // previous attempt to start with sensors selected.
@@ -334,13 +425,6 @@ public class StartScreenController : MonoBehaviour
             gestureCanvasRight.SetActive(true);
         if (gestureCanvasLeft != null)
             gestureCanvasLeft.SetActive(true);
-        // Not shown at all if there's nothing on any leaderboard yet — a
-        // fresh save otherwise showed this panel immediately with nothing
-        // but 3 rows of "--" and no photos in it, reading as an empty gray
-        // box rather than a real feature. See HasAnyRecordAnywhere's own
-        // comment.
-        if (topScoresPanel != null)
-            topScoresPanel.SetActive(HighScoreManager.Instance != null && HighScoreManager.Instance.HasAnyRecordAnywhere());
 
         if (SpeedController.Instance != null)
             SpeedController.Instance.BeginGame();
@@ -518,6 +602,7 @@ public class StartScreenController : MonoBehaviour
     private static bool IsLeanLeftDown(GestureInput gesture) => gesture != null && gesture.enabled && gesture.LeanLeftDown;
     private static bool IsLeanRightDown(GestureInput gesture) => gesture != null && gesture.enabled && gesture.LeanRightDown;
     private static bool IsJumpDown(GestureInput gesture) => gesture != null && gesture.enabled && gesture.JumpDown;
+    private static bool IsDuckHeld(GestureInput gesture) => gesture != null && gesture.enabled && gesture.DuckHeld;
 
     // "Both hands up, held" doesn't mean anything during actual play (only
     // the flapping motion does, to avoid an accidental jump from just

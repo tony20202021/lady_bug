@@ -97,6 +97,7 @@ GameObject:
   - component: {fileID: 7802379731967172458}
   - component: {fileID: 8000039180345746972}
   - component: {fileID: 5609282859704208596}
+  - component: {fileID: 2851428786208199756}
   - component: {fileID: 7518395507693451313}
   m_Layer: 0
   m_Name: Arch
@@ -148,6 +149,19 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   TrickAwarded: 0
+--- !u!114 &2851428786208199756
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8269583567606459105}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b8f8d6f543473447d8b8304d82c5f18c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  value: -1
 --- !u!65 &7518395507693451313
 BoxCollider:
   m_ObjectHideFlags: 0

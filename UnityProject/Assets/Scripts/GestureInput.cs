@@ -49,7 +49,7 @@ public class GestureInput : MonoBehaviour
     // being Down, far from it reads as Up (the opposite of the simulator's
     // Near=Up/Far=Down naming below — real mounting geometry decides this,
     // not a fixed convention).
-    private const int DownThresholdMm = 150;
+    private const int DownThresholdMm = 100;
     private const int UpThresholdMm = 200;
 
     // True while this player should read GestureSensorSerial instead of the
@@ -118,8 +118,12 @@ public class GestureInput : MonoBehaviour
             _leftHand = HandStateForDistance(LeftHandDistanceMm);
             _rightHand = HandStateForDistance(RightHandDistanceMm);
 
-            _leftFlapTracker.Observe(_leftHand);
-            _rightFlapTracker.Observe(_rightHand);
+            // Raw mm values, not the thresholded state above — a flap
+            // confined to one zone (e.g. bobbing between 220mm and 260mm,
+            // never actually reaching the Down threshold) never shows up as
+            // a Down<->Up state change, but it's still a real flap.
+            _leftFlapTracker.Observe(LeftHandDistanceMm);
+            _rightFlapTracker.Observe(RightHandDistanceMm);
             RealFlapDetected = _leftFlapTracker.IsFlapping && _rightFlapTracker.IsFlapping;
             flapping = RealFlapDetected;
         }
@@ -220,29 +224,76 @@ public class GestureInput : MonoBehaviour
         }
     }
 
-    // Timing-based rhythm detector for one hand, feeding RealFlapDetected —
-    // counts how many times a hand's reading has flipped between Up and
-    // Down within a short rolling window; enough flips in a row means it's
-    // actively flapping rather than just resting at one extreme.
+    // Detector for one hand, feeding RealFlapDetected — watches the raw mm
+    // reading directly (not the thresholded Up/Down/Neutral state) for a
+    // real reversal in direction: distance increasing, then decreasing (or
+    // vice versa), by at least MinSwingMm. Doesn't care where in the
+    // sensor's range that happens — a flap confined entirely to one zone
+    // (never actually crossing into Down or Up territory) still counts,
+    // unlike an earlier version of this that only recognized a full swing
+    // all the way from the Down threshold to the Up threshold.
+    //
+    // Requires RequiredSwings (2) within the window, not just 1 — a single
+    // qualifying reversal turned out to fire on plain hand repositioning
+    // too (e.g. settling into a duck pose overshoots slightly on the way
+    // down), both causing stray jumps and, worse, briefly suppressing
+    // DuckHeld/Lean (see the `if (flapping)` block in Update) for as long
+    // as that one stray swing stayed in the window — read as a delayed
+    // duck. Real flapping is repeated back-and-forth, so asking for a
+    // second reversal filters out a single settle-and-stop motion almost
+    // entirely while still being far quicker than the original version of
+    // this (which needed 3 full swings all the way between the absolute
+    // Down/Up thresholds). MinSwingMm raised alongside it (35 -> 55) so an
+    // ordinary hand wobble while moving to a pose doesn't rack up 2
+    // qualifying swings either.
     private class FlapTracker
     {
-        private const float Window = 1.2f;
-        private const int RequiredFlips = 3;
+        private const float Window = 0.9f;
+        private const float MinSwingMm = 55f;
+        private const int RequiredSwings = 2;
 
-        private readonly List<float> _flipTimes = new List<float>();
-        private HandState _prev = HandState.Neutral;
+        private readonly List<float> _swingTimes = new List<float>();
+        private float _lastValue = -1f;
+        private float _extremeValue = -1f;
+        private int _direction; // -1 falling, +1 rising, 0 not established yet
+        private bool _hasLast;
 
-        public bool IsFlapping => _flipTimes.Count >= RequiredFlips;
+        public bool IsFlapping => _swingTimes.Count >= RequiredSwings;
 
-        public void Observe(HandState current)
+        public void Observe(int mm)
         {
-            bool isFlip = (_prev == HandState.Up && current == HandState.Down)
-                       || (_prev == HandState.Down && current == HandState.Up);
-            if (isFlip)
-                _flipTimes.Add(Time.time);
-            _prev = current;
+            if (mm >= 0)
+            {
+                if (!_hasLast)
+                {
+                    _lastValue = mm;
+                    _extremeValue = mm;
+                    _hasLast = true;
+                }
+                else
+                {
+                    int newDirection = mm > _lastValue ? 1 : (mm < _lastValue ? -1 : _direction);
+                    if (_direction != 0 && newDirection != 0 && newDirection != _direction)
+                    {
+                        // Direction just reversed at _lastValue — how far did
+                        // it travel since the last confirmed swing's turning
+                        // point? Only reset that reference point once a real
+                        // (not noise-sized) swing lands, so several small
+                        // jitter-sized reversals in a row can still add up to
+                        // one real swing instead of each resetting the other.
+                        if (Mathf.Abs(_lastValue - _extremeValue) >= MinSwingMm)
+                        {
+                            _swingTimes.Add(Time.time);
+                            _extremeValue = _lastValue;
+                        }
+                    }
+                    if (newDirection != 0)
+                        _direction = newDirection;
+                    _lastValue = mm;
+                }
+            }
 
-            _flipTimes.RemoveAll(t => Time.time - t > Window);
+            _swingTimes.RemoveAll(t => Time.time - t > Window);
         }
     }
 }

@@ -31,6 +31,15 @@ public sealed class GestureSensorSerial : MonoBehaviour
     public int Player2RightMm { get; private set; } = -1;
     public bool Player2Brake { get; private set; }
 
+    // Scaffold for an upcoming physical exit button on the controller —
+    // which pin/button isn't decided yet, so this isn't wired into
+    // ParseLine/the "G,..." wire protocol below at all yet and always
+    // reads false. Once the button is chosen, extend the firmware sketch's
+    // line format and set this from the new field the same way Player1Brake
+    // etc. are set below — DuckToExitController already reacts to this
+    // going true the instant it's wired, no other changes needed there.
+    public bool ExitButtonPressed { get; private set; }
+
     private Thread _thread;
     private volatile bool _stopRequested;
     private volatile bool _connected;

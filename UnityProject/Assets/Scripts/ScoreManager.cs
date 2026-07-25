@@ -9,6 +9,13 @@ public class ScoreManager : MonoBehaviour
     [SerializeField] private RectTransform popupParent;
     [SerializeField] private RectTransform counterAnchor;
 
+    // Popups are spawned on the fly during play (not at scene-build time
+    // like every other Text in the game, see SceneSetup.GameFont), so this
+    // loads the same font itself instead — cached after the first call
+    // rather than hitting Resources.Load on every single popup.
+    private static Font _cachedFont;
+    private static Font GameFont => _cachedFont != null ? _cachedFont : (_cachedFont = Resources.Load<Font>("Fonts/ComicCAT"));
+
     private int _score;
 
     public int Score => _score;
@@ -39,7 +46,7 @@ public class ScoreManager : MonoBehaviour
         go.transform.SetParent(popupParent, false);
 
         Text text = go.AddComponent<Text>();
-        text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        text.font = GameFont;
         text.fontSize = 84;
         text.fontStyle = FontStyle.Bold;
         text.alignment = TextAnchor.MiddleCenter;

@@ -97,6 +97,7 @@ GameObject:
   - component: {fileID: 3772236495279750687}
   - component: {fileID: 2327415495055401931}
   - component: {fileID: 4200802737567246213}
+  - component: {fileID: 1649331580446364631}
   - component: {fileID: 398180797610995219}
   m_Layer: 0
   m_Name: BigArch
@@ -147,6 +148,19 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 82cf3df38f2e8432b8fab8e334b85b74, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+--- !u!114 &1649331580446364631
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2744491803375751349}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b8f8d6f543473447d8b8304d82c5f18c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  value: -1
 --- !u!65 &398180797610995219
 BoxCollider:
   m_ObjectHideFlags: 0

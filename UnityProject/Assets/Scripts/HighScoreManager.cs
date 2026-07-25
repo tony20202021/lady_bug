@@ -26,7 +26,12 @@ public class HighScoreManager : MonoBehaviour
     private readonly string[] _loadedPhotoPaths = new string[RowCount];
     private readonly Texture2D[] _loadedPhotoTextures = new Texture2D[RowCount];
 
-    private const int Count = 10;
+    // Matches RowCount (3) — nothing in this file or TopResultsPage ever
+    // reads past index 2, so storing 10 was just unused depth. To make
+    // testing easier (more runs qualify as new records), clear the saved
+    // PlayerPrefs data down to each category's #1 entry directly instead of
+    // shrinking this — this constant stays at the real intended size.
+    private const int Count = 3;
 
     private enum Category { Time, Score, Tricks, Speed }
     private static readonly string[] CategoryNames = { "ВРЕМЯ", "ОЧКИ", "ТРЮКИ", "СКОРОСТЬ" };

@@ -110,6 +110,15 @@ public class SpeedController : MonoBehaviour
         _winDecelerate = true;
     }
 
+    /// <summary>Cancels an in-progress EndWinBoost decelerate — used when WinSequence's
+    /// "flap to continue" prompt (which also eases the road to a stop via EndWinBoost,
+    /// same effect) gets a flap: normal acceleration resumes from whatever speed it had
+    /// reached, instead of continuing down to a full stop.</summary>
+    public void CancelDecelerate()
+    {
+        _winDecelerate = false;
+    }
+
     private void LateUpdate()
     {
         if (!_gameStarted || _paused)

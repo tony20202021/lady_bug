@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 // Per-category collect/hit/trick counts for the post-win achievements
@@ -9,14 +10,25 @@ public class AchievementStats : MonoBehaviour
 {
     public static AchievementStats Instance { get; private set; }
 
-    public int CherriesCollected { get; private set; }
-    public int FlowersCollected { get; private set; }
-    public int HeartsCollected { get; private set; }
+    // Keyed by the entity's own displayed texture (whatever PlayerController
+    // read off its "Sprite" child at the moment of collision) rather than a
+    // fixed set of named categories — every collected/hit object, however
+    // many distinct visual variants exist (e.g. the 9 different flower/
+    // daisy/sunflower/lotus sprites), gets counted under its own real
+    // picture instead of being lumped under one shared icon that wouldn't
+    // match what the player actually saw.
+    public readonly Dictionary<Texture2D, int> CollectedByIcon = new Dictionary<Texture2D, int>();
+    public readonly Dictionary<Texture2D, int> HitByIcon = new Dictionary<Texture2D, int>();
+    // Counts a collision whose texture couldn't be read (icon == null) —
+    // Dictionary<TKey,TValue> throws on a null key regardless of TKey being
+    // a reference type, so this can't just be another entry in the
+    // dictionaries above. Kept separate and folded into a fallback icon by
+    // WinSequence, so a run can never end up with a total that doesn't
+    // match what's actually drawn on the page (the original bug this whole
+    // texture-keyed design replaced).
+    public int UnknownCollected { get; private set; }
+    public int UnknownHit { get; private set; }
     public int TotalCollected { get; private set; }
-
-    public int BicyclesHit { get; private set; }
-    public int CatsHit { get; private set; }
-    public int DogsHit { get; private set; }
     public int TotalHit { get; private set; }
 
     public int RingTricks { get; private set; }
@@ -32,29 +44,26 @@ public class AchievementStats : MonoBehaviour
         Instance = this;
     }
 
-    // entityName: the spawned prefab instance's GameObject name, e.g.
-    // "Cherry(Clone)" — same name Instantiate() leaves it with, same
-    // name-prefix convention SfxManager.PlayBad already dispatches on.
-    public void RecordCollected(string entityName)
+    public void RecordCollected(Texture2D icon)
     {
         TotalCollected++;
-        if (entityName.StartsWith("Cherry"))
-            CherriesCollected++;
-        else if (entityName.StartsWith("Heart"))
-            HeartsCollected++;
-        else if (IsFlowerName(entityName))
-            FlowersCollected++;
+        if (icon == null)
+        {
+            UnknownCollected++;
+            return;
+        }
+        CollectedByIcon[icon] = CollectedByIcon.TryGetValue(icon, out int c) ? c + 1 : 1;
     }
 
-    public void RecordHit(string entityName)
+    public void RecordHit(Texture2D icon)
     {
         TotalHit++;
-        if (entityName.StartsWith("Dog"))
-            DogsHit++;
-        else if (entityName.StartsWith("Cat"))
-            CatsHit++;
-        else if (IsBicycleName(entityName))
-            BicyclesHit++;
+        if (icon == null)
+        {
+            UnknownHit++;
+            return;
+        }
+        HitByIcon[icon] = HitByIcon.TryGetValue(icon, out int c) ? c + 1 : 1;
     }
 
     public void RecordTrick(string trickName)
@@ -73,16 +82,5 @@ public class AchievementStats : MonoBehaviour
             BigRingTricks++;
         else if (trickName == "БЕСКОНЕЧНОСТЬ")
             InfinityTricks++;
-    }
-
-    private static bool IsFlowerName(string name)
-    {
-        return name.StartsWith("Flower") || name.StartsWith("Daisy")
-            || name.StartsWith("Sunflower") || name.StartsWith("Lotus");
-    }
-
-    private static bool IsBicycleName(string name)
-    {
-        return name.StartsWith("Bicycle") || name.StartsWith("Motorbike") || name.StartsWith("Motorcycle");
     }
 }

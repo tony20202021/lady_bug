@@ -2,15 +2,27 @@ using System.Collections;
 using UnityEngine;
 using UnityEngine.UI;
 
-// Very first thing shown when the game launches: flowers rain down and pile
-// up (bottom row first, see SceneSetup.CreateIntroScreen for the fill
-// order) until the whole screen is covered — held for a beat, then swapped
-// for a full-screen graffiti wall with a 5-4-3-2-1-СТАРТ countdown painted
-// on it — then this canvas hides itself and hands off to the start menu,
-// which has been sitting ready underneath the whole time.
+// Shown after the player holds down a control on LoaderScreenController's
+// attract-mode screen: flowers rain down and pile up (bottom row first, see
+// SceneSetup.CreateIntroScreen for the fill order) until the whole screen
+// is covered — held for a beat, then a 5-4-3-2-1-СТАРТ countdown appears
+// right on top of the finished flower pile — then this canvas fades itself
+// out and hands off to the start menu, which has been sitting ready
+// underneath the whole time. Doesn't start on its own (see BeginConfirmHold)
+// — LoaderScreenController triggers it once a control is held, and can
+// abort it partway through (AbortIfIncomplete) if released too early.
 public class IntroSequence : MonoBehaviour
 {
     [SerializeField] private GameObject canvasRoot;
+    // True from BeginConfirmHold() until either a natural finish (Finish())
+    // or an early abort (AbortIfIncomplete()) — lets LoaderScreenController
+    // tell those two "release happened after we already committed" and
+    // "release happened mid-sequence" cases apart.
+    public bool IsRunning { get; private set; }
+    // Fades the whole canvas out at the very end (see FadeOutAndFinish) —
+    // a soft finish instead of canvasRoot just vanishing on the spot.
+    [SerializeField] private CanvasGroup canvasGroup;
+    [SerializeField] private float finishFadeOutDuration = 0.6f;
     // One per grid cell, already in fill order (bottom row to top row,
     // shuffled within each row) — built at scene-setup time.
     [SerializeField] private RectTransform[] flowers;
@@ -23,40 +35,27 @@ public class IntroSequence : MonoBehaviour
     [SerializeField] private AudioSource buzzSource;
     [SerializeField] private float buzzMaxVolume = 0.6f;
 
-    // Once the grid is fully covered: the buzz fades to silence while the
-    // finished flower pile darkens at the same time, a brief hold at full
-    // black, then the (still empty) wall reveals out of that darkness —
-    // the countdown digits only start a beat after that, not together with
-    // the wall itself. Replaces the old flat "hold, then instant cut to the
-    // wall" beat.
+    // Once the grid is fully covered: the buzz fades to silence over this
+    // beat (no more darken-then-reveal-a-wall step — the countdown below
+    // now appears directly over the finished flower pile instead, per
+    // feedback that the wall background should go), then a short further
+    // pause (digitDelay) before the countdown itself starts.
     [SerializeField] private float darkenDuration = 1.2f;
-    [SerializeField] private float darkOverlayMaxAlpha = 0.95f;
-    [SerializeField] private float holdDark = 0.3f;
-    [SerializeField] private float wallRevealDuration = 1f;
     [SerializeField] private float digitDelay = 0.4f;
-    [SerializeField] private Image darkOverlay;
 
-    // Full-screen brick wall (Assets/Sprites/GraffitiWall.png) — opaque, so
-    // showing it automatically covers the flowers/backdrop underneath
-    // (later sibling, see CreateIntroScreen) without needing to hide those
-    // separately. Never moves, only the digit/word layer on top of it does.
-    [SerializeField] private GameObject wall;
-
-    // Big countdown, painted on the wall once it's revealed — 5-4-3-2-1,
-    // then "СТАРТ", held a moment (with a pulse/shake, see PulseStart),
-    // before revealing the start menu. Real generated graffiti artwork
-    // (yandex_api/gen_asset.sh), one transparent texture per step, swapped
-    // on this one RawImage — countdownTextures[0..4] are 5/4/3/2/1, [5] is
-    // "СТАРТ".
+    // Big countdown — 5-4-3-2-1, then "СТАРТ", held a moment (with a
+    // pulse/shake, see PulseStart), before revealing the start menu. Real
+    // generated graffiti artwork (yandex_api/gen_asset.sh), one transparent
+    // texture per step (drawn right over the flowers, no wall behind it
+    // anymore), swapped on this one RawImage — countdownTextures[0..4] are
+    // 5/4/3/2/1, [5] is "СТАРТ".
     [SerializeField] private RawImage countdownImage;
     [SerializeField] private Texture2D[] countdownTextures;
     [SerializeField] private float countdownStepDuration = 0.8f;
 
     // "СТАРТ" pulse — exactly pulseCount beats over startHoldDuration
     // (0.2s/beat at the defaults) rather than a fixed angular speed, so the
-    // count stays exactly right regardless of how long the hold is tuned
-    // to. Only this image pulses — the wall behind it is a separate object
-    // that never moves.
+    // count stays exactly right regardless of how long the hold is tuned to.
     [SerializeField] private float startHoldDuration = 2.2f;
     [SerializeField] private int startPulseCount = 11; // however many 0.2s beats fit in startHoldDuration
     [SerializeField] private float startPulseAmount = 0.08f;
@@ -96,24 +95,72 @@ public class IntroSequence : MonoBehaviour
     // underneath a screen meant to be silent.
     [SerializeField] private StartScreenController startScreen;
 
+    // Snapshot of each flower's resting anchoredPosition, taken once in
+    // Awake (before anything has moved) — DropFlower always falls toward
+    // this rather than re-reading the flower's current position, since
+    // after an aborted run a flower can be left part-way through its fall,
+    // and re-reading its position then would use that mid-air point as the
+    // new "resting" target instead of the real one.
+    private Vector2[] _flowerTargets;
+
     private void Awake()
     {
-        if (wall != null)
-            wall.SetActive(false);
         if (countdownImage != null)
             countdownImage.gameObject.SetActive(false);
 
         if (flowers == null)
             return;
 
-        foreach (var flower in flowers)
-            if (flower != null)
-                flower.gameObject.SetActive(false);
+        _flowerTargets = new Vector2[flowers.Length];
+        for (int i = 0; i < flowers.Length; i++)
+        {
+            if (flowers[i] == null)
+                continue;
+            _flowerTargets[i] = flowers[i].anchoredPosition;
+            flowers[i].gameObject.SetActive(false);
+        }
     }
 
-    private void Start()
+    // Called by LoaderScreenController when a control is first pressed —
+    // reveals this canvas and starts the flower/countdown sequence.
+    public void BeginConfirmHold()
     {
+        IsRunning = true;
+        if (canvasRoot != null)
+            canvasRoot.SetActive(true);
         StartCoroutine(RunIntro());
+    }
+
+    // Called by LoaderScreenController when the held control is released
+    // before the sequence reached "СТАРТ" — snaps everything back to its
+    // pre-run state and hides this canvas again instead of letting the
+    // coroutine keep playing out. A no-op if the sequence already finished
+    // naturally (IsRunning is false by then), so a release right at the end
+    // can't undo an already-committed start.
+    public void AbortIfIncomplete()
+    {
+        if (!IsRunning)
+            return;
+
+        StopAllCoroutines();
+        IsRunning = false;
+
+        if (buzzSource != null)
+        {
+            buzzSource.Stop();
+            buzzSource.volume = 0f;
+        }
+        if (countdownImage != null)
+            countdownImage.gameObject.SetActive(false);
+        if (canvasGroup != null)
+            canvasGroup.alpha = 1f;
+        if (flowers != null)
+            foreach (var flower in flowers)
+                if (flower != null)
+                    flower.gameObject.SetActive(false);
+
+        if (canvasRoot != null)
+            canvasRoot.SetActive(false);
     }
 
     private IEnumerator RunIntro()
@@ -135,7 +182,7 @@ public class IntroSequence : MonoBehaviour
         {
             var flower = flowers[i];
             if (flower != null)
-                StartCoroutine(DropFlower(flower));
+                StartCoroutine(DropFlower(flower, _flowerTargets[i]));
             if (buzzSource != null)
                 buzzSource.volume = Mathf.Lerp(0f, buzzMaxVolume, (float)(i + 1) / flowers.Length);
             yield return new WaitForSeconds(perFlowerDelay);
@@ -145,26 +192,19 @@ public class IntroSequence : MonoBehaviour
         // the menu underneath, instead of cutting them off mid-air.
         yield return new WaitForSeconds(fallDuration);
 
-        yield return StartCoroutine(FadeToWall());
+        yield return StartCoroutine(FadeOutBuzz());
 
         yield return new WaitForSeconds(digitDelay);
         yield return StartCoroutine(RunCountdown());
-        Finish();
+        yield return StartCoroutine(FadeOutAndFinish());
     }
 
-    // Buzz fades to silence while the finished flower pile darkens at the
-    // same time, a brief hold at full black, then the (still empty) wall
-    // reveals back out of that darkness — see darkOverlay's own field comment.
-    private IEnumerator FadeToWall()
+    // Just the buzz winding down to silence over darkenDuration — used to
+    // also darken the screen to black and reveal a graffiti wall behind the
+    // countdown here; removed per feedback (the countdown sits directly
+    // over the finished flower pile now, no separate background swap).
+    private IEnumerator FadeOutBuzz()
     {
-        if (darkOverlay != null)
-        {
-            darkOverlay.gameObject.SetActive(true);
-            Color c = darkOverlay.color;
-            c.a = 0f;
-            darkOverlay.color = c;
-        }
-
         float startBuzzVolume = buzzSource != null ? buzzSource.volume : 0f;
         float t = 0f;
         while (t < darkenDuration)
@@ -173,37 +213,29 @@ public class IntroSequence : MonoBehaviour
             float p = Mathf.Clamp01(t / darkenDuration);
             if (buzzSource != null)
                 buzzSource.volume = Mathf.Lerp(startBuzzVolume, 0f, p);
-            if (darkOverlay != null)
-            {
-                Color c = darkOverlay.color;
-                c.a = Mathf.Lerp(0f, darkOverlayMaxAlpha, p);
-                darkOverlay.color = c;
-            }
             yield return null;
         }
         if (buzzSource != null)
             buzzSource.Stop();
+    }
 
-        yield return new WaitForSeconds(holdDark);
-
-        if (wall != null)
-            wall.SetActive(true);
-
-        t = 0f;
-        while (t < wallRevealDuration)
+    // Replaces the old instant Finish() call — the whole screen (flowers +
+    // countdown, whatever's still showing) eases out to transparent instead
+    // of just vanishing on the spot, then hides for good.
+    private IEnumerator FadeOutAndFinish()
+    {
+        if (canvasGroup != null)
         {
-            t += Time.deltaTime;
-            float p = Mathf.Clamp01(t / wallRevealDuration);
-            if (darkOverlay != null)
+            float t = 0f;
+            while (t < finishFadeOutDuration)
             {
-                Color c = darkOverlay.color;
-                c.a = Mathf.Lerp(darkOverlayMaxAlpha, 0f, p);
-                darkOverlay.color = c;
+                t += Time.deltaTime;
+                canvasGroup.alpha = 1f - Mathf.Clamp01(t / finishFadeOutDuration);
+                yield return null;
             }
-            yield return null;
+            canvasGroup.alpha = 0f;
         }
-        if (darkOverlay != null)
-            darkOverlay.gameObject.SetActive(false);
+        Finish();
     }
 
     private IEnumerator RunCountdown()
@@ -232,8 +264,7 @@ public class IntroSequence : MonoBehaviour
 
     // Scale pulse + small jittery shake for the "СТАРТ" hold, exactly
     // startPulseCount beats over startHoldDuration — a plain static line
-    // read as flat compared to the rest of this sequence, and only the
-    // word itself moves (the wall behind it is a separate, unmoving object).
+    // read as flat compared to the rest of this sequence.
     private IEnumerator PulseStart()
     {
         RectTransform rt = countdownImage.rectTransform;
@@ -281,9 +312,8 @@ public class IntroSequence : MonoBehaviour
         }
     }
 
-    private IEnumerator DropFlower(RectTransform flower)
+    private IEnumerator DropFlower(RectTransform flower, Vector2 target)
     {
-        Vector2 target = flower.anchoredPosition;
         Vector2 start = target + new Vector2(0f, fallDistance);
         flower.anchoredPosition = start;
         flower.gameObject.SetActive(true);
@@ -300,6 +330,7 @@ public class IntroSequence : MonoBehaviour
 
     private void Finish()
     {
+        IsRunning = false;
         if (canvasRoot != null)
             canvasRoot.SetActive(false);
     }

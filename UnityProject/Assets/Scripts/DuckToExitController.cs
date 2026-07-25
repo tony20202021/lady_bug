@@ -7,11 +7,21 @@ using UnityEngine.UI;
 // control scheme). First 5s are silent; the next 5s show a visible
 // countdown, so releasing early is an obvious way to cancel. Releasing at
 // any point resets the whole thing back to zero.
+//
+// A dedicated physical exit button is coming to the controller too (exact
+// button not chosen yet — see GestureSensorSerial.ExitButtonPressed) —
+// unlike the duck hold above, that one fires the same dialog instantly on
+// press, no hold/countdown. DebugExitKey stands in for it on a keyboard
+// until the real button's wired.
 public class DuckToExitController : MonoBehaviour
 {
     [SerializeField] private Text countdownText;
     [SerializeField] private float silentPhase = 5f;
     [SerializeField] private float countdownPhase = 5f;
+
+    // STUB — keyboard stand-in for GestureSensorSerial.ExitButtonPressed
+    // until the real hardware button exists. Swap/remove once it does.
+    [SerializeField] private KeyCode debugExitKey = KeyCode.Backspace;
 
     private float _holdTimer;
 
@@ -24,6 +34,17 @@ public class DuckToExitController : MonoBehaviour
             return; // Q on the help screen already covers this
         if (PauseController.Instance != null && PauseController.Instance.IsDialogOpen)
             return; // already open — don't restack
+
+        bool exitButtonPressed = Input.GetKeyDown(debugExitKey)
+            || (GestureSensorSerial.Instance != null && GestureSensorSerial.Instance.ExitButtonPressed);
+        if (exitButtonPressed)
+        {
+            _holdTimer = 0f;
+            SetCountdownVisible(false);
+            if (PauseController.Instance != null)
+                PauseController.Instance.OpenDialog();
+            return;
+        }
 
         if (!AreAllPlayersDucking())
         {
