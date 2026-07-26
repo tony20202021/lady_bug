@@ -18,10 +18,13 @@ public static class SceneSetup
     // CreateDashTexture and cycled through along the road, instead of every
     // dash looking identical — see CreateDashTexture/DrawDashBand.
     const int DashVariantCount = 3;
-    // How many tinted/shifted copies of ShoulderTile.png are stacked into
-    // ShoulderTileVariants.png (see CreateRoadShoulder) — same trick as
-    // DashVariantCount, so the single baked stone/sand sprite doesn't repeat
-    // as one identical strip the whole length of the road.
+    // How many brightness/warmth cycles ShoulderTileVariants.png completes
+    // across its own stacked height (see CreateRoadShoulder) — a smooth,
+    // seamlessly-tiling sine modulation of the single baked ShoulderTile.png
+    // sprite (no hard cuts — an earlier version stacked discretely-tinted
+    // copies, which showed a visible seam at each boundary, per feedback),
+    // so the strip doesn't repeat as one flatly identical tint the whole
+    // length of the road.
     const int ShoulderVariantCount = 3;
     const float ScrollSpeed = 10f;
     const float RoadTextureTileSize = 1.5f; // world units per asphalt-texture tile — must match CreateRoadTexture's mainTextureScale divisor
@@ -37,7 +40,7 @@ public static class SceneSetup
     // just Assets/) specifically so runtime code (ScoreManager/
     // TricksManager's popups, built on the fly during play, not at scene-
     // build time) can load it too via Resources.Load, the same as this does.
-    static Font GameFont => Resources.Load<Font>("Fonts/ComicCAT");
+    static Font GameFont => Resources.Load<Font>("lady_bug/Fonts/ComicCAT");
 
     [MenuItem("Tools/Rebuild Scene")]
     public static void BuildScene()
@@ -94,8 +97,8 @@ public static class SceneSetup
         CreateStartScreen(playerRight, playerLeft, gestureCanvasLeft, gestureCanvasRight);
         CreatePauseDialog();
         CreateExitGesture();
-        CreateIntroScreen();
-        CreateLoaderScreen();
+        IntroSequence[] gameIntros = CreateAllIntroScreens();
+        CreateLoaderScreen(gameIntros);
         CreateScreenInfoLabel();
 
         System.IO.Directory.CreateDirectory("Assets/Scenes");
@@ -343,10 +346,10 @@ public static class SceneSetup
             // Cycle order alternates a "tucked" pose with a "wide" one
             // instead of the raw generation order, so it reads as an actual
             // stride rather than 2 poses each held twice as long.
-            Texture2D frame1Tex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/" + spriteFile);
-            Texture2D frame2Tex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/" + spriteFile.Replace(".png", "Frame2.png"));
-            Texture2D frame3Tex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/" + spriteFile.Replace(".png", "Frame3.png"));
-            Texture2D frame4Tex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/" + spriteFile.Replace(".png", "Frame4.png"));
+            Texture2D frame1Tex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/" + spriteFile);
+            Texture2D frame2Tex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/" + spriteFile.Replace(".png", "Frame2.png"));
+            Texture2D frame3Tex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/" + spriteFile.Replace(".png", "Frame3.png"));
+            Texture2D frame4Tex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/" + spriteFile.Replace(".png", "Frame4.png"));
 
             var groundFrames = new System.Collections.Generic.List<Texture2D> { frame1Tex, frame3Tex, frame2Tex, frame4Tex };
             groundFrames.RemoveAll(t => t == null);
@@ -358,8 +361,8 @@ public static class SceneSetup
 
             // Airborne cycle — wings-open frames, same "FrameN" edit-of-frame1
             // convention but under an "AirN" suffix instead.
-            Texture2D air1Tex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/" + spriteFile.Replace(".png", "Air1.png"));
-            Texture2D air2Tex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/" + spriteFile.Replace(".png", "Air2.png"));
+            Texture2D air1Tex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/" + spriteFile.Replace(".png", "Air1.png"));
+            Texture2D air2Tex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/" + spriteFile.Replace(".png", "Air2.png"));
 
             var airFrames = new System.Collections.Generic.List<Texture2D> { air1Tex, air2Tex };
             airFrames.RemoveAll(t => t == null);
@@ -405,7 +408,7 @@ public static class SceneSetup
 
     static Transform CreatePlayerSprite(Transform parent, Color tint, string spriteFile)
     {
-        Texture2D tex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/" + spriteFile);
+        Texture2D tex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/" + spriteFile);
         if (tex == null)
         {
             Debug.LogWarning("LadyBug sprite not found at Assets/Sprites/" + spriteFile);
@@ -487,7 +490,7 @@ public static class SceneSetup
         for (int i = 1; i < LaneCount; i++)
         {
             float dividerX = -roadWidth / 2f + i * LaneWidth;
-            CreateDashedDivider(dividerX);
+            CreateDashedDivider(dividerX, i * 101); // distinct seedOffset per divider line — see CreateDashTexture
         }
     }
 
@@ -507,7 +510,7 @@ public static class SceneSetup
         // green base, tiles reasonably cleanly) instead of a flat color —
         // a plain fill read as "green plastic", not grass, from any
         // distance close enough to actually see it.
-        Texture2D grassTexture = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/GrassTile.png");
+        Texture2D grassTexture = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/GrassTile.png");
         foreach (float side in new[] { -1f, 1f })
         {
             GameObject ground = GameObject.CreatePrimitive(PrimitiveType.Cube);
@@ -550,19 +553,20 @@ public static class SceneSetup
         float roadWidth = LaneCount * LaneWidth;
         const float shoulderWidth = 2.5f;
         const float pavementOverlap = 0.5f; // how far this reaches onto the road side of the seam
-        // ShoulderVariantCount tinted + horizontally-shifted copies of the
-        // single baked ShoulderTile.png sprite, stacked vertically (see
-        // yandex_api scripts / repo history) — per feedback that a single
-        // sprite repeated the whole road length reads as too uniform;
-        // there was no room to add colour/placement randomness to
-        // ShoulderTile.png itself since it's baked AI artwork, not
-        // procedurally drawn circles, so the variance is layered on top
-        // instead (same "stack N bands, cycle through them" trick
-        // CreateDashTexture uses for the lane markings).
-        Texture2D shoulderVariantsTexture = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/ShoulderTileVariants.png");
+        // A smooth ShoulderVariantCount-cycle brightness/warmth wave over
+        // the single baked ShoulderTile.png sprite (see yandex_api scripts /
+        // repo history) — per feedback that a single sprite repeated the
+        // whole road length reads as too uniform. There was no room to add
+        // colour randomness to ShoulderTile.png itself since it's baked AI
+        // artwork, not procedurally drawn circles, so the variance is
+        // layered on top instead — continuous, not discrete tinted bands
+        // (an earlier version stacked hard-cut bands, which showed a
+        // visible seam at each boundary; this one has no boundaries at all,
+        // and tiles seamlessly with itself besides).
+        Texture2D shoulderVariantsTexture = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/ShoulderTileVariants.png");
         Texture2D shoulderTexture = shoulderVariantsTexture != null
             ? shoulderVariantsTexture
-            : AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/ShoulderTile.png");
+            : AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/ShoulderTile.png");
         if (shoulderTexture == null)
             return;
         // The variants texture is ShoulderVariantCount copies of the base
@@ -599,7 +603,7 @@ public static class SceneSetup
         }
     }
 
-    static void CreateDashedDivider(float x)
+    static void CreateDashedDivider(float x, int seedOffset)
     {
         GameObject divider = GameObject.CreatePrimitive(PrimitiveType.Plane);
         divider.name = "LaneDivider";
@@ -612,7 +616,7 @@ public static class SceneSetup
         Shader shader = Shader.Find("Standard") ?? Shader.Find("Diffuse");
         Material material = new Material(shader)
         {
-            mainTexture = CreateDashTexture(),
+            mainTexture = CreateDashTexture(seedOffset),
             // One full texture tile now contains DashVariantCount stacked
             // dash styles (see CreateDashTexture), so a full tile-repeat
             // spans DashVariantCount * DashPeriod world units, not just
@@ -720,7 +724,7 @@ public static class SceneSetup
 
     static void CreateSpawner()
     {
-        System.IO.Directory.CreateDirectory("Assets/Prefabs");
+        System.IO.Directory.CreateDirectory("Assets/Prefabs/lady_bug");
 
         // Three separate pools so the spawner can pick in two steps:
         // good vs. bad, then — only for bad — jump-over vs. duck-under.
@@ -732,7 +736,7 @@ public static class SceneSetup
             bool canWander = System.Array.IndexOf(WanderingAnimals, name) >= 0;
             float? widthOverride = LaneObjectWidthOverrides.TryGetValue(name, out float overrideWidth) ? overrideWidth : (float?)null;
             float? colliderHeightOverride = LaneObjectColliderHeightOverrides.TryGetValue(name, out float overrideColliderHeight) ? overrideColliderHeight : (float?)null;
-            GameObject prefab = CreateEntityPrefab(name, "Assets/Sprites/" + file, height, "Assets/Prefabs/" + name + ".prefab", score, canWander, widthOverride, colliderHeightOverride);
+            GameObject prefab = CreateEntityPrefab(name, "Assets/Sprites/lady_bug/" + file, height, "Assets/Prefabs/lady_bug/" + name + ".prefab", score, canWander, widthOverride, colliderHeightOverride);
             if (prefab == null)
                 continue;
             (score > 0 ? goodPrefabs : badJumpPrefabs).Add(prefab);
@@ -777,12 +781,12 @@ public static class SceneSetup
 
     static void CreateSideScenery()
     {
-        System.IO.Directory.CreateDirectory("Assets/Prefabs");
+        System.IO.Directory.CreateDirectory("Assets/Prefabs/lady_bug");
 
         var prefabs = new System.Collections.Generic.List<GameObject>();
         foreach (var (name, file, height) in SceneryObjects)
         {
-            GameObject prefab = CreateEntityPrefab(name, "Assets/Sprites/" + file, height, "Assets/Prefabs/" + name + ".prefab");
+            GameObject prefab = CreateEntityPrefab(name, "Assets/Sprites/lady_bug/" + file, height, "Assets/Prefabs/lady_bug/" + name + ".prefab");
             if (prefab != null)
                 prefabs.Add(prefab);
         }
@@ -821,14 +825,14 @@ public static class SceneSetup
 
     static void CreateSky()
     {
-        System.IO.Directory.CreateDirectory("Assets/Prefabs");
+        System.IO.Directory.CreateDirectory("Assets/Prefabs/lady_bug");
 
         CreateSkyBackground();
 
         var prefabs = new System.Collections.Generic.List<GameObject>();
         foreach (var (name, file, height) in CloudSprites)
         {
-            GameObject prefab = CreateCloudPrefab(name, "Assets/Sprites/" + file, height);
+            GameObject prefab = CreateCloudPrefab(name, "Assets/Sprites/lady_bug/" + file, height);
             if (prefab != null)
                 prefabs.Add(prefab);
         }
@@ -868,13 +872,13 @@ public static class SceneSetup
         Shader shader = Shader.Find("Legacy Shaders/Transparent/Cutout/Diffuse") ?? Shader.Find("Standard");
         Material material = new Material(shader) { mainTexture = tex };
 
-        System.IO.Directory.CreateDirectory("Assets/Materials");
-        string materialPath = "Assets/Materials/" + name + ".mat";
+        System.IO.Directory.CreateDirectory("Assets/Materials/lady_bug");
+        string materialPath = "Assets/Materials/lady_bug/" + name + ".mat";
         AssetDatabase.DeleteAsset(materialPath); // safe to rerun Rebuild Scene
         AssetDatabase.CreateAsset(material, materialPath);
         renderer.sharedMaterial = material;
 
-        string savePath = "Assets/Prefabs/" + name + ".prefab";
+        string savePath = "Assets/Prefabs/lady_bug/" + name + ".prefab";
         GameObject prefab = PrefabUtility.SaveAsPrefabAsset(root, savePath);
         Object.DestroyImmediate(root);
         return prefab;
@@ -892,7 +896,7 @@ public static class SceneSetup
     // rather than risking a hole showing the flat fallback color.
     static void CreateSkyBackground()
     {
-        Texture2D tex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/SkyBackground.png");
+        Texture2D tex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/SkyBackground.png");
         if (tex == null)
         {
             Debug.LogWarning("Texture not found: Assets/Sprites/SkyBackground.png");
@@ -913,8 +917,8 @@ public static class SceneSetup
         Shader shader = Shader.Find("Legacy Shaders/Diffuse") ?? Shader.Find("Standard");
         Material material = new Material(shader) { mainTexture = tex };
 
-        System.IO.Directory.CreateDirectory("Assets/Materials");
-        string materialPath = "Assets/Materials/SkyBackground.mat";
+        System.IO.Directory.CreateDirectory("Assets/Materials/lady_bug");
+        string materialPath = "Assets/Materials/lady_bug/SkyBackground.mat";
         AssetDatabase.DeleteAsset(materialPath); // safe to rerun Rebuild Scene
         AssetDatabase.CreateAsset(material, materialPath);
         renderer.sharedMaterial = material;
@@ -922,7 +926,7 @@ public static class SceneSetup
 
     static void CreateSunSprite()
     {
-        Texture2D tex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/Sun.png");
+        Texture2D tex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/Sun.png");
         if (tex == null)
         {
             Debug.LogWarning("Texture not found: Assets/Sprites/Sun.png");
@@ -965,21 +969,21 @@ public static class SceneSetup
         SfxManager sfx = audioGo.AddComponent<SfxManager>();
         SerializedObject sfxSo = new SerializedObject(sfx);
         sfxSo.FindProperty("source").objectReferenceValue = sfxSource;
-        sfxSo.FindProperty("pickupClip").objectReferenceValue = AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Audio/PickupPositive.mp3");
-        sfxSo.FindProperty("dogClip").objectReferenceValue = AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Audio/BadDog.mp3");
-        sfxSo.FindProperty("catClip").objectReferenceValue = AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Audio/BadCat.mp3");
-        sfxSo.FindProperty("crowClip").objectReferenceValue = AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Audio/BadCrow.mp3");
-        sfxSo.FindProperty("snakeClip").objectReferenceValue = AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Audio/SnakeHiss.mp3");
-        sfxSo.FindProperty("hitGenericClip").objectReferenceValue = AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Audio/HitGeneric.mp3");
-        sfxSo.FindProperty("trickClip").objectReferenceValue = AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Audio/TrickApplause.mp3");
+        sfxSo.FindProperty("pickupClip").objectReferenceValue = AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Audio/lady_bug/PickupPositive.mp3");
+        sfxSo.FindProperty("dogClip").objectReferenceValue = AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Audio/lady_bug/BadDog.mp3");
+        sfxSo.FindProperty("catClip").objectReferenceValue = AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Audio/lady_bug/BadCat.mp3");
+        sfxSo.FindProperty("crowClip").objectReferenceValue = AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Audio/lady_bug/BadCrow.mp3");
+        sfxSo.FindProperty("snakeClip").objectReferenceValue = AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Audio/lady_bug/SnakeHiss.mp3");
+        sfxSo.FindProperty("hitGenericClip").objectReferenceValue = AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Audio/lady_bug/HitGeneric.mp3");
+        sfxSo.FindProperty("trickClip").objectReferenceValue = AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Audio/lady_bug/TrickApplause.mp3");
         sfxSo.ApplyModifiedPropertiesWithoutUndo();
 
         AudioSource shiftSource = audioGo.AddComponent<AudioSource>();
-        shiftSource.clip = AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Audio/GearShift.wav");
+        shiftSource.clip = AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Audio/lady_bug/GearShift.wav");
         shiftSource.playOnAwake = false;
 
         AudioSource humSource = audioGo.AddComponent<AudioSource>();
-        humSource.clip = AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Audio/EngineHum.mp3");
+        humSource.clip = AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Audio/lady_bug/EngineHum.mp3");
         humSource.loop = true;
         humSource.playOnAwake = false;
 
@@ -997,13 +1001,13 @@ public static class SceneSetup
     static void CreatePlayerMovementSfx(GameObject player, PlayerController controller)
     {
         AudioSource feetSource = player.AddComponent<AudioSource>();
-        feetSource.clip = AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Audio/RunFeet.mp3");
+        feetSource.clip = AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Audio/lady_bug/RunFeet.mp3");
         feetSource.loop = true;
         feetSource.playOnAwake = true;
         feetSource.volume = 0f;
 
         AudioSource wingsSource = player.AddComponent<AudioSource>();
-        wingsSource.clip = AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Audio/Buzz.wav");
+        wingsSource.clip = AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Audio/lady_bug/Buzz.wav");
         wingsSource.loop = true;
         wingsSource.playOnAwake = true;
         wingsSource.volume = 0f;
@@ -1025,8 +1029,8 @@ public static class SceneSetup
     // not one texture into a plain material.
     static GameObject CreateSnakePrefab()
     {
-        Texture2D idleTex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/SnakeCobra.png");
-        Texture2D movingTex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/SnakeSlither.png");
+        Texture2D idleTex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/SnakeCobra.png");
+        Texture2D movingTex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/SnakeSlither.png");
         if (idleTex == null || movingTex == null)
         {
             Debug.LogWarning("Snake textures not found in Assets/Sprites/");
@@ -1071,8 +1075,8 @@ public static class SceneSetup
         Shader shader = Shader.Find("Legacy Shaders/Transparent/Cutout/Diffuse") ?? Shader.Find("Standard");
         Material material = new Material(shader) { mainTexture = idleTex };
 
-        System.IO.Directory.CreateDirectory("Assets/Materials");
-        string materialPath = "Assets/Materials/" + name + ".mat";
+        System.IO.Directory.CreateDirectory("Assets/Materials/lady_bug");
+        string materialPath = "Assets/Materials/lady_bug/" + name + ".mat";
         AssetDatabase.DeleteAsset(materialPath);
         AssetDatabase.CreateAsset(material, materialPath);
         renderer.sharedMaterial = material;
@@ -1086,7 +1090,7 @@ public static class SceneSetup
         poseSo.FindProperty("height").floatValue = height;
         poseSo.ApplyModifiedPropertiesWithoutUndo();
 
-        string savePath = "Assets/Prefabs/Snake.prefab";
+        string savePath = "Assets/Prefabs/lady_bug/Snake.prefab";
         GameObject prefab = PrefabUtility.SaveAsPrefabAsset(root, savePath);
         Object.DestroyImmediate(root);
         return prefab;
@@ -1154,8 +1158,8 @@ public static class SceneSetup
         // Prefab assets can only reference materials that are themselves saved
         // assets — an in-memory Material here would serialize as a broken
         // (magenta) reference once written to disk.
-        System.IO.Directory.CreateDirectory("Assets/Materials");
-        string materialPath = "Assets/Materials/" + name + ".mat";
+        System.IO.Directory.CreateDirectory("Assets/Materials/lady_bug");
+        string materialPath = "Assets/Materials/lady_bug/" + name + ".mat";
         AssetDatabase.DeleteAsset(materialPath); // safe to rerun Rebuild Scene
         AssetDatabase.CreateAsset(material, materialPath);
         renderer.sharedMaterial = material;
@@ -1171,7 +1175,7 @@ public static class SceneSetup
     // (there's nothing to duck under, it's a hole/spill in the road).
     static GameObject CreateGroundDecalPrefab(string name, string textureFile, float size)
     {
-        Texture2D tex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/" + textureFile);
+        Texture2D tex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/" + textureFile);
         if (tex == null)
         {
             Debug.LogWarning("Texture not found: Assets/Sprites/" + textureFile);
@@ -1196,8 +1200,8 @@ public static class SceneSetup
         Shader shader = Shader.Find("Legacy Shaders/Transparent/Cutout/Diffuse") ?? Shader.Find("Standard");
         Material material = new Material(shader) { mainTexture = tex };
 
-        System.IO.Directory.CreateDirectory("Assets/Materials");
-        string materialPath = "Assets/Materials/" + name + ".mat";
+        System.IO.Directory.CreateDirectory("Assets/Materials/lady_bug");
+        string materialPath = "Assets/Materials/lady_bug/" + name + ".mat";
         AssetDatabase.DeleteAsset(materialPath);
         AssetDatabase.CreateAsset(material, materialPath);
         renderer.sharedMaterial = material;
@@ -1206,7 +1210,7 @@ public static class SceneSetup
         box.isTrigger = true;
         box.size = new Vector3(size * aspect, 0.1f, size);
 
-        string savePath = "Assets/Prefabs/" + name + ".prefab";
+        string savePath = "Assets/Prefabs/lady_bug/" + name + ".prefab";
         GameObject prefab = PrefabUtility.SaveAsPrefabAsset(root, savePath);
         Object.DestroyImmediate(root);
         return prefab;
@@ -1307,7 +1311,7 @@ public static class SceneSetup
         labelGo.transform.SetParent(parent, false);
         Text label = labelGo.AddComponent<Text>();
         label.font = GameFont;
-        label.fontSize = 18;
+        label.fontSize = 27; // 18 * 1.5
         label.fontStyle = FontStyle.Bold;
         label.alignment = TextAnchor.UpperCenter;
         label.color = new Color(0.85f, 0.85f, 0.85f);
@@ -1316,8 +1320,8 @@ public static class SceneSetup
         labelRt.anchorMin = new Vector2(0f, 1f);
         labelRt.anchorMax = new Vector2(1f, 1f);
         labelRt.pivot = new Vector2(0.5f, 1f);
-        labelRt.sizeDelta = new Vector2(0f, 26f);
-        labelRt.anchoredPosition = new Vector2(0f, -6f);
+        labelRt.sizeDelta = new Vector2(0f, 39f); // 26 * 1.5
+        labelRt.anchoredPosition = new Vector2(0f, -9f); // 6 * 1.5
     }
 
     // Gameplay HUD panels fan out from each top corner as real pizza-slice
@@ -1330,10 +1334,10 @@ public static class SceneSetup
     // own slice (see gearSpeedCenterAngle below). angleDeg (the slice's own
     // center) is measured from the top edge (0°) sweeping down toward the
     // side edge (90°), same convention for both corners.
-    const float FanRadius = 280f;
+    const float FanRadius = 420f; // 280 * 1.5 — corner indicators sized up per feedback
     const float LeftWedgeAngle = 45f; // 90° / 2 panels
     const float RightWedgeAngle = 45f; // 90° / 2 panels
-    const float WedgeContentRadius = 190f; // how far out along its slice's centerline a panel's label/value sits
+    const float WedgeContentRadius = 285f; // 190 * 1.5, how far out along its slice's centerline a panel's label/value sits
 
     static void CreateScoreUI(out Canvas canvas)
     {
@@ -1356,18 +1360,18 @@ public static class SceneSetup
         // (not a hardcoded 1920x1080 offset) — stays flush against the real
         // corner on any aspect ratio, instead of drifting/clipping when the
         // actual screen isn't exactly 16:9.
-        Texture2D leftWedgeTexture = CreateWedgeTexture(512, LeftWedgeAngle, true);
-        const float leftContentWidth = 150f;
+        Texture2D distanceWedgeTexture = CreateWedgeTexture(512, LeftWedgeAngle, true);
+        const float leftContentWidth = 225f; // 150 * 1.5
 
         var distancePanelGo = new GameObject("DistancePanel");
         distancePanelGo.transform.SetParent(canvasGo.transform, false);
         RawImage distancePanelImage = distancePanelGo.AddComponent<RawImage>();
-        distancePanelImage.texture = leftWedgeTexture;
+        distancePanelImage.texture = distanceWedgeTexture;
 
         RectTransform distancePanelRt = distancePanelGo.GetComponent<RectTransform>();
         PositionWedgePanel(distancePanelRt, false, LeftWedgeAngle * 0.5f, FanRadius);
 
-        RectTransform distanceContentRt = CreateWedgeContent(distancePanelGo.transform, false, 0f, WedgeContentRadius, leftContentWidth, 90f);
+        RectTransform distanceContentRt = CreateWedgeContent(distancePanelGo.transform, false, 0f, WedgeContentRadius, leftContentWidth, 135f);
 
         CreatePanelLabel(distanceContentRt, "ДИСТАНЦИЯ");
 
@@ -1375,7 +1379,7 @@ public static class SceneSetup
         distanceTextGo.transform.SetParent(distanceContentRt, false);
         Text distanceText = distanceTextGo.AddComponent<Text>();
         distanceText.font = GameFont;
-        distanceText.fontSize = 40;
+        distanceText.fontSize = 60;
         distanceText.fontStyle = FontStyle.Bold;
         distanceText.alignment = TextAnchor.MiddleCenter;
         distanceText.color = new Color(0.7f, 1f, 0.7f);
@@ -1400,7 +1404,7 @@ public static class SceneSetup
         // Score panel — right-corner fan (ОЧКИ/ТРЮКИ), mirrored from the
         // left-corner one above.
         Texture2D rightWedgeTexture = CreateWedgeTexture(512, RightWedgeAngle, false);
-        const float rightContentWidth = 230f;
+        const float rightContentWidth = 345f; // 230 * 1.5
         const float scoreAngle = RightWedgeAngle * 0.5f;
 
         var panelGo = new GameObject("ScorePanel");
@@ -1411,7 +1415,7 @@ public static class SceneSetup
         RectTransform panelRt = panelGo.GetComponent<RectTransform>();
         PositionWedgePanel(panelRt, true, scoreAngle, FanRadius);
 
-        RectTransform scoreContentRt = CreateWedgeContent(panelGo.transform, true, 0f, WedgeContentRadius, rightContentWidth, 100f);
+        RectTransform scoreContentRt = CreateWedgeContent(panelGo.transform, true, 0f, WedgeContentRadius, rightContentWidth, 150f);
 
         CreatePanelLabel(scoreContentRt, "ОЧКИ");
 
@@ -1419,7 +1423,7 @@ public static class SceneSetup
         textGo.transform.SetParent(scoreContentRt, false);
         Text scoreText = textGo.AddComponent<Text>();
         scoreText.font = GameFont;
-        scoreText.fontSize = 48;
+        scoreText.fontSize = 72;
         scoreText.fontStyle = FontStyle.Bold;
         scoreText.alignment = TextAnchor.MiddleCenter;
         scoreText.color = new Color(1f, 0.85f, 0.2f);
@@ -1470,15 +1474,16 @@ public static class SceneSetup
 
         // Timer panel — left-corner fan, outermost slice (closest to the
         // side edge).
+        Texture2D timerWedgeTexture = CreateWedgeTexture(512, LeftWedgeAngle, true);
         var timerPanelGo = new GameObject("TimerPanel");
         timerPanelGo.transform.SetParent(canvasGo.transform, false);
         RawImage timerPanelImage = timerPanelGo.AddComponent<RawImage>();
-        timerPanelImage.texture = leftWedgeTexture;
+        timerPanelImage.texture = timerWedgeTexture;
 
         RectTransform timerPanelRt = timerPanelGo.GetComponent<RectTransform>();
         PositionWedgePanel(timerPanelRt, false, LeftWedgeAngle * 1.5f, FanRadius);
 
-        RectTransform timerContentRt = CreateWedgeContent(timerPanelGo.transform, false, 0f, WedgeContentRadius, leftContentWidth, 70f);
+        RectTransform timerContentRt = CreateWedgeContent(timerPanelGo.transform, false, 0f, WedgeContentRadius, leftContentWidth, 105f);
 
         CreatePanelLabel(timerContentRt, "ВРЕМЯ");
 
@@ -1486,7 +1491,7 @@ public static class SceneSetup
         timerTextGo.transform.SetParent(timerContentRt, false);
         Text timerText = timerTextGo.AddComponent<Text>();
         timerText.font = GameFont;
-        timerText.fontSize = 30;
+        timerText.fontSize = 45;
         timerText.fontStyle = FontStyle.Bold;
         timerText.alignment = TextAnchor.MiddleCenter;
         timerText.color = Color.white;
@@ -1530,8 +1535,8 @@ public static class SceneSetup
         // very center" per feedback, not partway out like the rest of the
         // fan — with a small round badge behind the digit for contrast,
         // since there's no wedge background here to sit on anymore.
-        const float gearHubRadius = 40f;
-        const float gearHubBadgeSize = 76f;
+        const float gearHubRadius = 60f; // 40 * 1.5
+        const float gearHubBadgeSize = 114f; // 76 * 1.5
         Texture2D gearHubBadgeTexture = CreateCircleTexture(128, new Color(0f, 0f, 0f, 0.45f));
         RectTransform gearBadgeContentRt = CreateWedgeContent(gearSpeedPanelGo.transform, false, 0f, gearHubRadius, gearHubBadgeSize, gearHubBadgeSize);
         var gearBadgeGo = new GameObject("GearBadge");
@@ -1548,7 +1553,7 @@ public static class SceneSetup
         gearDigitGo.transform.SetParent(gearBadgeContentRt, false);
         Text gearDigitText = gearDigitGo.AddComponent<Text>();
         gearDigitText.font = GameFont;
-        gearDigitText.fontSize = 40;
+        gearDigitText.fontSize = 60;
         gearDigitText.fontStyle = FontStyle.Bold;
         gearDigitText.alignment = TextAnchor.MiddleCenter;
         gearDigitText.color = Color.white;
@@ -1566,7 +1571,7 @@ public static class SceneSetup
         // of a scatter of dots. Colors (green -> red) are assigned at
         // runtime by SpeedIndicator itself, along with which ones are
         // "lit" — these just start dim.
-        Image[] speedTicks = CreateTickRing(gearSpeedPanelGo.transform, false, 10, 140f, LeftWedgeAngle - 4f);
+        Image[] speedTicks = CreateTickRing(gearSpeedPanelGo.transform, false, 10, 210f, LeftWedgeAngle - 4f);
 
         var speedManagerGo = new GameObject("SpeedIndicator");
         SpeedIndicator speedIndicator = speedManagerGo.AddComponent<SpeedIndicator>();
@@ -1601,7 +1606,7 @@ public static class SceneSetup
         PositionWedgePanel(emptyHubRt, true, RightWedgeAngle, FanRadius);
 
         Texture2D emptyHubBadgeTexture = CreateCircleTexture(128, new Color(0f, 0f, 0f, 0.45f));
-        RectTransform emptyBadgeContentRt = CreateWedgeContent(emptyHubGo.transform, true, 0f, 40f, 76f, 76f);
+        RectTransform emptyBadgeContentRt = CreateWedgeContent(emptyHubGo.transform, true, 0f, 60f, 114f, 114f);
         var emptyBadgeGo = new GameObject("Badge");
         emptyBadgeGo.transform.SetParent(emptyBadgeContentRt, false);
         RawImage emptyBadgeImage = emptyBadgeGo.AddComponent<RawImage>();
@@ -1612,7 +1617,7 @@ public static class SceneSetup
         emptyBadgeRt.offsetMin = Vector2.zero;
         emptyBadgeRt.offsetMax = Vector2.zero;
 
-        CreateTickRing(emptyHubGo.transform, true, 10, 140f, RightWedgeAngle - 4f);
+        CreateTickRing(emptyHubGo.transform, true, 10, 210f, RightWedgeAngle - 4f);
     }
 
     // One checkbox+text row for the post-win recap's stats pages — same
@@ -2058,7 +2063,7 @@ public static class SceneSetup
         for (int i = 0; i < statsIconCountLabels.Length; i++)
             statsIconCountLabelsProp.GetArrayElementAtIndex(i).objectReferenceValue = statsIconCountLabels[i];
         so.FindProperty("statsTotalText").objectReferenceValue = statsTotalText;
-        so.FindProperty("mysteryIcon").objectReferenceValue = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/Mystery.png");
+        so.FindProperty("mysteryIcon").objectReferenceValue = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/Mystery.png");
         so.FindProperty("leaderboardRoot").objectReferenceValue = leaderboardRootGo;
         SerializedProperty leaderboardPagesProp = so.FindProperty("leaderboardPages");
         leaderboardPagesProp.arraySize = leaderboardPages.Length;
@@ -2085,7 +2090,7 @@ public static class SceneSetup
         canvasGo.AddComponent<GraphicRaycaster>();
 
         Texture2D rightWedgeTexture = CreateWedgeTexture(512, RightWedgeAngle, false);
-        const float rightContentWidth = 230f;
+        const float rightContentWidth = 345f; // 230 * 1.5
         const float tricksAngle = RightWedgeAngle * 1.5f;
 
         var panelGo = new GameObject("TricksPanel");
@@ -2096,7 +2101,7 @@ public static class SceneSetup
         RectTransform panelRt = panelGo.GetComponent<RectTransform>();
         PositionWedgePanel(panelRt, true, tricksAngle, FanRadius);
 
-        RectTransform tricksContentRt = CreateWedgeContent(panelGo.transform, true, 0f, WedgeContentRadius, rightContentWidth, 120f);
+        RectTransform tricksContentRt = CreateWedgeContent(panelGo.transform, true, 0f, WedgeContentRadius, rightContentWidth, 180f);
 
         CreatePanelLabel(tricksContentRt, "ТРЮКИ");
 
@@ -2104,7 +2109,7 @@ public static class SceneSetup
         textGo.transform.SetParent(tricksContentRt, false);
         Text tricksText = textGo.AddComponent<Text>();
         tricksText.font = GameFont;
-        tricksText.fontSize = 56;
+        tricksText.fontSize = 84;
         tricksText.fontStyle = FontStyle.Bold;
         tricksText.alignment = TextAnchor.MiddleCenter;
         tricksText.color = new Color(0.6f, 0.9f, 1f);
@@ -2286,7 +2291,7 @@ public static class SceneSetup
     static GameObject CreateArchPrefab()
     {
         const string name = "Arch";
-        Texture2D tex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/SmallArch.png");
+        Texture2D tex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/SmallArch.png");
         if (tex == null)
         {
             Debug.LogWarning("Texture not found: Assets/Sprites/SmallArch.png");
@@ -2323,8 +2328,8 @@ public static class SceneSetup
         Shader shader = Shader.Find("Legacy Shaders/Transparent/Cutout/Diffuse") ?? Shader.Find("Standard");
         Material material = new Material(shader) { mainTexture = tex };
 
-        System.IO.Directory.CreateDirectory("Assets/Materials");
-        string materialPath = "Assets/Materials/" + name + ".mat";
+        System.IO.Directory.CreateDirectory("Assets/Materials/lady_bug");
+        string materialPath = "Assets/Materials/lady_bug/" + name + ".mat";
         AssetDatabase.DeleteAsset(materialPath); // safe to rerun Rebuild Scene
         AssetDatabase.CreateAsset(material, materialPath);
         renderer.sharedMaterial = material;
@@ -2338,7 +2343,7 @@ public static class SceneSetup
 
         AddStaticGroundShadow(root, spanWidth, 0.4f, name + "_Shadow");
 
-        string savePath = "Assets/Prefabs/" + name + ".prefab";
+        string savePath = "Assets/Prefabs/lady_bug/" + name + ".prefab";
         GameObject prefab = PrefabUtility.SaveAsPrefabAsset(root, savePath);
         Object.DestroyImmediate(root);
         return prefab;
@@ -2350,7 +2355,7 @@ public static class SceneSetup
     // in PlayerController.OnTriggerEnter.
     static GameObject CreateBigArchPrefab()
     {
-        Texture2D tex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/BigArchSign.png");
+        Texture2D tex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/BigArchSign.png");
         if (tex == null)
         {
             Debug.LogWarning("Texture not found: Assets/Sprites/BigArchSign.png");
@@ -2393,8 +2398,8 @@ public static class SceneSetup
         Shader shader = Shader.Find("Legacy Shaders/Transparent/Cutout/Diffuse") ?? Shader.Find("Standard");
         Material material = new Material(shader) { mainTexture = tex };
 
-        System.IO.Directory.CreateDirectory("Assets/Materials");
-        string materialPath = "Assets/Materials/BigArchSign.mat";
+        System.IO.Directory.CreateDirectory("Assets/Materials/lady_bug");
+        string materialPath = "Assets/Materials/lady_bug/BigArchSign.mat";
         AssetDatabase.DeleteAsset(materialPath);
         AssetDatabase.CreateAsset(material, materialPath);
         renderer.sharedMaterial = material;
@@ -2409,7 +2414,7 @@ public static class SceneSetup
 
         AddStaticGroundShadow(root, spanWidth, 0.6f, "BigArch_Shadow");
 
-        string savePath = "Assets/Prefabs/BigArch.prefab";
+        string savePath = "Assets/Prefabs/lady_bug/BigArch.prefab";
         GameObject prefab = PrefabUtility.SaveAsPrefabAsset(root, savePath);
         Object.DestroyImmediate(root);
         return prefab;
@@ -2417,7 +2422,7 @@ public static class SceneSetup
 
     static void CreateBigArchSpawner()
     {
-        System.IO.Directory.CreateDirectory("Assets/Prefabs");
+        System.IO.Directory.CreateDirectory("Assets/Prefabs/lady_bug");
 
         GameObject prefab = CreateBigArchPrefab();
 
@@ -2452,7 +2457,7 @@ public static class SceneSetup
         var musicGo = new GameObject("StartScreenMusic");
         musicGo.transform.SetParent(canvasGo.transform, false);
         AudioSource musicSource = musicGo.AddComponent<AudioSource>();
-        musicSource.clip = AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Audio/StartScreenMusic.mp3");
+        musicSource.clip = AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Audio/lady_bug/StartScreenMusic.mp3");
         musicSource.loop = true;
         musicSource.playOnAwake = false;
         musicSource.volume = 0.5f;
@@ -2536,17 +2541,14 @@ public static class SceneSetup
 
         // Built separately (not inline in the list below) so the distance
         // line's Text can be grabbed afterward and wired to a live label —
-        // "N км Проехат" needs to track WinSequence's actual win distance
+        // "проехать N км" needs to track WinSequence's actual win distance
         // (temporarily lowered for debug/test runs) instead of a hardcoded
-        // number that'd lie while testing. Word order/spelling on this page
-        // is deliberately mangled (meme reference, per the user) — verbatim
-        // as given, not a typo to fix.
+        // number that'd lie while testing.
         var goalPage = CreateChecklistPage(carouselRt, "ЦЕЛЬ",
-            "100 км проехат",
-            "время - уменьшат",
-            "очки набират",
-            "трюки выполнят",
-            "дорога сама разгонят");
+            "проехать 100 км", // GoalDistanceLabel overwrites this with the real live distance
+            "за минимально возможное время",
+            "дополнительно набирать очки",
+            "дорога разгоняется сама");
         GoalDistanceLabel goalDistanceLabel = goalPage.rowTexts[0].gameObject.AddComponent<GoalDistanceLabel>();
         SerializedObject goalDistanceSo = new SerializedObject(goalDistanceLabel);
         goalDistanceSo.FindProperty("label").objectReferenceValue = goalPage.rowTexts[0];
@@ -2563,49 +2565,162 @@ public static class SceneSetup
             // moved later, right after these two.
             goalPage.page,
 
-            // Word order/spelling on this page is deliberately mangled
-            // (meme reference, per the user) — verbatim as given, not a
-            // typo to fix.
             CreateChecklistPage(carouselRt, "СУТЬ ИГРЫ",
-                "хорошее собират",
-                "плохое избегат",
-                "трюки вдвоём делат").page,
-
-            // Order matches TopResultsDisplayOrder (Очки/Время/Скорость/Трюки).
-            CreateTopResultsPage(carouselRt, TopResultsDisplayOrder[0]),
-            CreateTopResultsPage(carouselRt, TopResultsDisplayOrder[1]),
-            CreateTopResultsPage(carouselRt, TopResultsDisplayOrder[2]),
-            CreateTopResultsPage(carouselRt, TopResultsDisplayOrder[3]),
+                "собирать хорошие объекты",
+                "избегать плохие объекты",
+                "выполнять трюки вдвоём").page,
 
             CreateObjectGridPage(carouselRt, "ХОРОШИЕ ОБЪЕКТЫ", new Color(0.4f, 1f, 0.5f), GoodObjectNames),
             CreateObjectGridPage(carouselRt, "ПЛОХИЕ ОБЪЕКТЫ", new Color(1f, 0.4f, 0.3f), BadObjectNames),
 
-            // All 4 gesture-with-sensors pages first, УПРАВЛЕНИЕ (which
-            // hardware reads which player) right after them — that page no
-            // longer repeats the actual moves itself, so it needs these
-            // shown first for context.
-            CreateGestureDiagramPage(carouselRt, "ПРИСЕСТЬ", false, false, false),
+            // УПРАВЛЕНИЕ (which hardware reads which player) — the actual
+            // gesture-move pages that used to lead into it here moved to
+            // the ТРЕНИРОВКА carousel instead (see trickCarouselPages
+            // below), per feedback that this upfront screen should get
+            // straight to ЦЕЛЬ/СУТЬ/objects/controls, not repeat the full
+            // move set for players who just want to start playing.
+            CreateControlsPage(carouselRt),
+
+            // Order matches TopResultsDisplayOrder (Очки/Время/Скорость/Трюки).
+            // Moved to the end of this list — feedback only re-ordered the
+            // pages above it, leaderboards are still fine to show, just
+            // after the actual instructions rather than before them.
+            CreateTopResultsPage(carouselRt, TopResultsDisplayOrder[0]),
+            CreateTopResultsPage(carouselRt, TopResultsDisplayOrder[1]),
+            CreateTopResultsPage(carouselRt, TopResultsDisplayOrder[2]),
+            CreateTopResultsPage(carouselRt, TopResultsDisplayOrder[3]),
+        };
+
+        // Trick-instruction pages used to be part of this same upfront
+        // carousel (everyone saw them, whether they'd chosen ТРЕНИРОВКА or
+        // not) — moved into their own separate carousel/canvas below,
+        // shown only after that specific choice, per feedback.
+        var trickCarouselGo = new GameObject("TrickCarouselCanvas");
+        Canvas trickCarouselCanvas = trickCarouselGo.AddComponent<Canvas>();
+        trickCarouselCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        trickCarouselCanvas.sortingOrder = 100; // same layer as StartScreenCanvas/TrainingCanvas — never shown together
+        CanvasScaler trickCarouselScaler = trickCarouselGo.AddComponent<CanvasScaler>();
+        trickCarouselScaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        trickCarouselScaler.referenceResolution = new Vector2(1920f, 1080f);
+        trickCarouselScaler.matchWidthOrHeight = 1f;
+        trickCarouselGo.AddComponent<GraphicRaycaster>();
+
+        var trickBackdropGo = new GameObject("Backdrop");
+        trickBackdropGo.transform.SetParent(trickCarouselGo.transform, false);
+        Image trickBackdrop = trickBackdropGo.AddComponent<Image>();
+        trickBackdrop.color = new Color(0.05f, 0.05f, 0.08f, 1f);
+        RectTransform trickBackdropRt = trickBackdropGo.GetComponent<RectTransform>();
+        trickBackdropRt.anchorMin = Vector2.zero;
+        trickBackdropRt.anchorMax = Vector2.one;
+        trickBackdropRt.offsetMin = Vector2.zero;
+        trickBackdropRt.offsetMax = Vector2.zero;
+
+        // Same footprint/style as the main menu's own carousel (carouselRt/
+        // carouselBgGo above) — trick pages were built to fit that box, so
+        // reusing its exact size keeps them looking identical here.
+        var trickCarouselContentGo = new GameObject("TrickCarousel");
+        trickCarouselContentGo.transform.SetParent(trickCarouselGo.transform, false);
+        RectTransform trickCarouselRt = trickCarouselContentGo.AddComponent<RectTransform>();
+        trickCarouselRt.anchorMin = new Vector2(0.5f, 0.5f);
+        trickCarouselRt.anchorMax = new Vector2(0.5f, 0.5f);
+        trickCarouselRt.pivot = new Vector2(0.5f, 0.5f);
+        trickCarouselRt.sizeDelta = new Vector2(1300f, 720f);
+        trickCarouselRt.anchoredPosition = new Vector2(0f, 90f);
+
+        var trickCarouselBgGo = new GameObject("TrickCarouselBackground");
+        trickCarouselBgGo.transform.SetParent(trickCarouselRt, false);
+        Image trickCarouselBg = trickCarouselBgGo.AddComponent<Image>();
+        trickCarouselBg.color = new Color(0f, 0f, 0f, 0.22f);
+        Outline trickCarouselBgOutline = trickCarouselBgGo.AddComponent<Outline>();
+        trickCarouselBgOutline.effectColor = Color.gray;
+        trickCarouselBgOutline.effectDistance = new Vector2(4f, -4f);
+        RectTransform trickCarouselBgRt = trickCarouselBgGo.GetComponent<RectTransform>();
+        trickCarouselBgRt.anchorMin = Vector2.zero;
+        trickCarouselBgRt.anchorMax = Vector2.one;
+        trickCarouselBgRt.offsetMin = Vector2.zero;
+        trickCarouselBgRt.offsetMax = Vector2.zero;
+
+        var trickCarouselPages = new System.Collections.Generic.List<GameObject>
+        {
+            // Gesture-move pages first (moved here from the main upfront
+            // carousel, per feedback — someone who picked ТРЕНИРОВКА
+            // specifically wants this level of detail, a player heading
+            // straight to СТАРТ doesn't need it repeated in their way),
+            // trick pages after — knowing the moves before the tricks that
+            // combine them reads better than the other order.
+            CreateGestureDiagramPage(trickCarouselRt, "ПРИСЕСТЬ", false, false, false),
 
             // Split from the old single shared "В СТОРОНУ" page into its
             // own left/right page each — showing both directions on one
             // page read as "which one am I even looking at" mid-gesture.
-            CreateGestureDiagramPage(carouselRt, "ВЛЕВО", false, true, false),
-            CreateGestureDiagramPage(carouselRt, "ВПРАВО", true, false, false),
+            CreateGestureDiagramPage(trickCarouselRt, "ВЛЕВО", false, true, false),
+            CreateGestureDiagramPage(trickCarouselRt, "ВПРАВО", true, false, false),
 
-            CreateGestureDiagramPage(carouselRt, "МАХАТЬ КРЫЛЬЯМИ", true, true, true),
+            CreateGestureDiagramPage(trickCarouselRt, "МАХАТЬ КРЫЛЬЯМИ", true, true, true),
 
-            CreateControlsPage(carouselRt),
-
-            CreateArchTrickPage(carouselRt),
-
-            CreateRingTrickPage(carouselRt),
-
-            CreateLeapfrogTrickPage(carouselRt),
-            CreateSyncTrickPage(carouselRt),
-            CreateHoverTrickPage(carouselRt),
-            CreateBigRingTrickPage(carouselRt),
-            CreateInfinityTrickPage(carouselRt),
+            CreateArchTrickPage(trickCarouselRt),
+            CreateRingTrickPage(trickCarouselRt),
+            CreateLeapfrogTrickPage(trickCarouselRt),
+            CreateSyncTrickPage(trickCarouselRt),
+            CreateHoverTrickPage(trickCarouselRt),
+            CreateBigRingTrickPage(trickCarouselRt),
+            CreateInfinityTrickPage(trickCarouselRt),
         };
+        for (int i = 1; i < trickCarouselPages.Count; i++)
+            trickCarouselPages[i].SetActive(false);
+
+        var trickTitleGo = new GameObject("TrickCarouselTitle");
+        trickTitleGo.transform.SetParent(trickCarouselGo.transform, false);
+        Text trickTitle = trickTitleGo.AddComponent<Text>();
+        trickTitle.font = GameFont;
+        trickTitle.fontSize = 44;
+        trickTitle.fontStyle = FontStyle.Bold;
+        trickTitle.alignment = TextAnchor.MiddleCenter;
+        trickTitle.color = new Color(1f, 0.85f, 0.2f);
+        trickTitle.text = "ДВИЖЕНИЯ И ТРЮКИ"; // covers both the gesture pages and the trick pages now sharing this carousel
+        trickTitleGo.AddComponent<Outline>().effectColor = Color.black;
+        RectTransform trickTitleRt = trickTitle.GetComponent<RectTransform>();
+        trickTitleRt.anchorMin = new Vector2(0.5f, 0.5f);
+        trickTitleRt.anchorMax = new Vector2(0.5f, 0.5f);
+        trickTitleRt.pivot = new Vector2(0.5f, 0.5f);
+        trickTitleRt.sizeDelta = new Vector2(1400f, 70f);
+        trickTitleRt.anchoredPosition = new Vector2(0f, 490f);
+
+        var trickHintGo = new GameObject("TrickCarouselHint");
+        trickHintGo.transform.SetParent(trickCarouselGo.transform, false);
+        Text trickHint = trickHintGo.AddComponent<Text>();
+        trickHint.font = GameFont;
+        trickHint.fontSize = 26;
+        trickHint.fontStyle = FontStyle.Bold;
+        trickHint.alignment = TextAnchor.MiddleCenter;
+        trickHint.color = new Color(0.85f, 0.85f, 0.85f);
+        trickHint.text = "ПРОБЕЛ / ВЗМАХ — К ТРЕНИРОВКЕ\nВНИЗ 5 СЕК — НАЗАД В МЕНЮ";
+        trickHintGo.AddComponent<Outline>().effectColor = Color.black;
+        RectTransform trickHintRt = trickHint.GetComponent<RectTransform>();
+        trickHintRt.anchorMin = new Vector2(0.5f, 0.5f);
+        trickHintRt.anchorMax = new Vector2(0.5f, 0.5f);
+        trickHintRt.pivot = new Vector2(0.5f, 0.5f);
+        trickHintRt.sizeDelta = new Vector2(900f, 80f);
+        trickHintRt.anchoredPosition = new Vector2(0f, -460f);
+
+        var trickExitCountdownGo = new GameObject("TrickCarouselExitCountdown");
+        trickExitCountdownGo.transform.SetParent(trickCarouselGo.transform, false);
+        Text trickExitCountdownText = trickExitCountdownGo.AddComponent<Text>();
+        trickExitCountdownText.font = GameFont;
+        trickExitCountdownText.fontSize = 90;
+        trickExitCountdownText.fontStyle = FontStyle.Bold;
+        trickExitCountdownText.alignment = TextAnchor.MiddleCenter;
+        trickExitCountdownText.color = new Color(1f, 0.85f, 0.15f);
+        trickExitCountdownGo.AddComponent<Outline>().effectColor = Color.black;
+        RectTransform trickExitCountdownRt = trickExitCountdownText.GetComponent<RectTransform>();
+        trickExitCountdownRt.anchorMin = new Vector2(0.5f, 0.5f);
+        trickExitCountdownRt.anchorMax = new Vector2(0.5f, 0.5f);
+        trickExitCountdownRt.pivot = new Vector2(0.5f, 0.5f);
+        trickExitCountdownRt.sizeDelta = new Vector2(240f, 130f);
+        trickExitCountdownRt.anchoredPosition = new Vector2(0f, -560f);
+        trickExitCountdownGo.SetActive(false);
+
+        trickCarouselGo.SetActive(false);
 
         // Options row container — its Outline is the focus frame for row 0.
         // Lower and tighter to the other two rows than before — no bottom
@@ -2854,6 +2969,10 @@ public static class SceneSetup
         so.FindProperty("trainingText").objectReferenceValue = trainingBtn.GetComponentInChildren<Text>();
         so.FindProperty("trainingCanvasRoot").objectReferenceValue = trainingCanvasGo;
         so.FindProperty("trainingExitCountdownText").objectReferenceValue = trainingCountdownText;
+        so.FindProperty("trickCarouselCanvasRoot").objectReferenceValue = trickCarouselGo;
+        SetPrefabArray(so, "trickCarouselPages", trickCarouselPages);
+        so.FindProperty("trickCarouselBackground").objectReferenceValue = trickCarouselBgGo;
+        so.FindProperty("trickCarouselExitCountdownText").objectReferenceValue = trickExitCountdownText;
         so.FindProperty("startOutline").objectReferenceValue = startRowOutline;
         so.FindProperty("startRowBg").objectReferenceValue = startRowBg;
         so.FindProperty("playerRight").objectReferenceValue = playerRight;
@@ -3133,7 +3252,7 @@ public static class SceneSetup
             float cx = gridLeft + cellWidth * (col + 0.5f);
             float cy = gridTop - cellHeight * (row + 0.5f);
 
-            Texture2D tex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/" + items[i].file);
+            Texture2D tex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/" + items[i].file);
 
             var iconGo = new GameObject("Icon_" + items[i].name);
             iconGo.transform.SetParent(page.transform, false);
@@ -3226,7 +3345,7 @@ public static class SceneSetup
     // something that actually reads as a physical joystick at a glance.
     static void CreateJoystickIcon(Transform parent, Vector2 pos)
     {
-        Texture2D tex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/Joystick.png");
+        Texture2D tex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/Joystick.png");
 
         var go = new GameObject("JoystickIcon");
         go.transform.SetParent(parent, false);
@@ -3403,7 +3522,7 @@ public static class SceneSetup
         // bug's top edge stays clear of the title above it.
         const float topHalfCenterY = 100f;
         const float bugHeight = 200f;
-        Texture2D bugTex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/LadyBug1.png");
+        Texture2D bugTex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/LadyBug1.png");
         var bugGo = new GameObject("Bug");
         bugGo.transform.SetParent(page.transform, false);
         RawImage bugImage = bugGo.AddComponent<RawImage>();
@@ -3427,8 +3546,8 @@ public static class SceneSetup
         so.FindProperty("isFlap").boolValue = isFlap;
         so.FindProperty("bugImage").objectReferenceValue = bugImage;
         so.FindProperty("bugNormalTexture").objectReferenceValue = bugTex;
-        so.FindProperty("bugAirTexture1").objectReferenceValue = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/LadyBug1Air1.png");
-        so.FindProperty("bugAirTexture2").objectReferenceValue = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/LadyBug1Air2.png");
+        so.FindProperty("bugAirTexture1").objectReferenceValue = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/LadyBug1Air1.png");
+        so.FindProperty("bugAirTexture2").objectReferenceValue = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/LadyBug1Air2.png");
         so.ApplyModifiedPropertiesWithoutUndo();
 
         return page;
@@ -3459,7 +3578,7 @@ public static class SceneSetup
         GameObject downArrows = CreateArrowPair(page.transform, "DownArrows", "↓", new Color(1f, 0.85f, 0.2f), -bugY, arrowXOffset);
         GameObject upArrows = CreateArrowPair(page.transform, "UpArrows", "↑", new Color(1f, 0.85f, 0.2f), bugY, arrowXOffset);
 
-        Texture2D archTex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/SmallArch.png");
+        Texture2D archTex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/SmallArch.png");
         var archGo = new GameObject("Arch");
         archGo.transform.SetParent(page.transform, false);
         RawImage archImg = archGo.AddComponent<RawImage>();
@@ -3497,7 +3616,7 @@ public static class SceneSetup
         so.FindProperty("upArrows").objectReferenceValue = upArrows;
         so.FindProperty("arch").objectReferenceValue = archRt;
         so.FindProperty("successText").objectReferenceValue = successGo;
-        so.FindProperty("topBugAirTexture").objectReferenceValue = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/LadyBug2Air1.png");
+        so.FindProperty("topBugAirTexture").objectReferenceValue = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/LadyBug2Air1.png");
         so.ApplyModifiedPropertiesWithoutUndo();
 
         return page;
@@ -3580,7 +3699,7 @@ public static class SceneSetup
         // short of the top.
         ringSo.FindProperty("arcHeight").floatValue = 2f * ovalYRadius;
         ringSo.FindProperty("successText").objectReferenceValue = successGo;
-        ringSo.FindProperty("airBugAirTexture").objectReferenceValue = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/LadyBug1Air1.png");
+        ringSo.FindProperty("airBugAirTexture").objectReferenceValue = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/LadyBug1Air1.png");
         ringSo.ApplyModifiedPropertiesWithoutUndo();
 
         return page;
@@ -3652,8 +3771,8 @@ public static class SceneSetup
         anim.staggerDelay = staggerDelay;
         anim.successText = successGo;
         anim.laneSpacing = laneSpacing;
-        anim.airTextureA = string.IsNullOrEmpty(airTextureA) ? null : AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/" + airTextureA);
-        anim.airTextureB = string.IsNullOrEmpty(airTextureB) ? null : AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/" + airTextureB);
+        anim.airTextureA = string.IsNullOrEmpty(airTextureA) ? null : AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/" + airTextureA);
+        anim.airTextureB = string.IsNullOrEmpty(airTextureB) ? null : AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/" + airTextureB);
 
         return page;
     }
@@ -3968,7 +4087,7 @@ public static class SceneSetup
     // the explanation instead).
     static RectTransform CreateTrickBugIcon(Transform parent, string spriteFile, Vector2 pos, float height)
     {
-        Texture2D tex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/" + spriteFile);
+        Texture2D tex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/" + spriteFile);
 
         var iconGo = new GameObject("Bug_" + spriteFile);
         iconGo.transform.SetParent(parent, false);
@@ -4048,12 +4167,18 @@ public static class SceneSetup
     {
         GameObject page = CreateFillPage(parent, "Page_TopResults_" + category);
 
-        // Placeholder text set immediately (rather than leaving these blank
-        // until TopResultsPage.Refresh runs) so the carousel background
-        // never shows as an empty box for even a frame before real values
-        // land — Refresh overwrites this the moment HighScoreManager has
-        // real data.
+        // Placeholder text — TopResultsPage.RefreshTitle/RefreshTable
+        // overwrite these once the real leaderboard data is available, on
+        // its own staged reveal (empty -> title -> table, see that
+        // script's own comment); this is just what shows for the briefest
+        // instant before that reveal starts.
         string categoryName = category >= 0 && category < TopCategoryNames.Length ? TopCategoryNames[category] : "?";
+
+        // Every row element (medals/values/photos/arrows below) is parented
+        // here instead of directly under `page`, so TopResultsPage can
+        // reveal them as one group in its own "then the table appears"
+        // stage — the title alone stays a direct child of `page`.
+        GameObject tableGroupGo = CreateFillPage(page.transform, "TableGroup");
 
         // Three columns: title (left, vertically centered), rank+result
         // (middle, split into its own 2 sub-columns), photo (right, sized
@@ -4098,9 +4223,9 @@ public static class SceneSetup
         // without covering the star.
         Texture2D[] medalTextures =
         {
-            AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/MedalGold.png"),
-            AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/MedalSilver.png"),
-            AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/MedalBronze.png"),
+            AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/MedalGold.png"),
+            AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/MedalSilver.png"),
+            AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/MedalBronze.png"),
         };
 
         // Photos sit in a 2-column zigzag, not one plain vertical stack:
@@ -4124,7 +4249,7 @@ public static class SceneSetup
         for (int i = 0; i < 3; i++)
         {
             var medalGo = new GameObject("RowMedal" + i);
-            medalGo.transform.SetParent(page.transform, false);
+            medalGo.transform.SetParent(tableGroupGo.transform, false);
             RawImage medalImg = medalGo.AddComponent<RawImage>();
             Texture2D medalTex = medalTextures[i];
             medalImg.texture = medalTex;
@@ -4151,7 +4276,7 @@ public static class SceneSetup
             rowMedals[i] = medalImg;
 
             var rowValueGo = new GameObject("RowValue" + i);
-            rowValueGo.transform.SetParent(page.transform, false);
+            rowValueGo.transform.SetParent(tableGroupGo.transform, false);
             Text rowValue = rowValueGo.AddComponent<Text>();
             rowValue.font = GameFont;
             rowValue.fontSize = 36;
@@ -4187,7 +4312,7 @@ public static class SceneSetup
             float shaftCenterX = (shaftStartX + shaftEndX) / 2f;
 
             var shaftGo = new GameObject("RowArrowShaft" + i);
-            shaftGo.transform.SetParent(page.transform, false);
+            shaftGo.transform.SetParent(tableGroupGo.transform, false);
             Image shaftImg = shaftGo.AddComponent<Image>();
             shaftImg.color = new Color(1f, 0.85f, 0.2f, 0.95f);
             RectTransform shaftRt = shaftImg.GetComponent<RectTransform>();
@@ -4198,7 +4323,7 @@ public static class SceneSetup
             shaftRt.anchoredPosition = new Vector2(shaftCenterX, arrowY);
 
             var headGo = new GameObject("RowArrowHead" + i);
-            headGo.transform.SetParent(page.transform, false);
+            headGo.transform.SetParent(tableGroupGo.transform, false);
             RawImage headImg = headGo.AddComponent<RawImage>();
             headImg.texture = arrowHeadTexture;
             headImg.color = new Color(1f, 0.85f, 0.2f);
@@ -4213,7 +4338,7 @@ public static class SceneSetup
             rowArrowHeads[i] = headGo;
 
             var rowPhotoGo = new GameObject("RowPhoto" + i);
-            rowPhotoGo.transform.SetParent(page.transform, false);
+            rowPhotoGo.transform.SetParent(tableGroupGo.transform, false);
             RawImage rowPhoto = rowPhotoGo.AddComponent<RawImage>();
             rowPhoto.color = Color.white;
             RectTransform rowPhotoRt = rowPhoto.GetComponent<RectTransform>();
@@ -4230,6 +4355,7 @@ public static class SceneSetup
         SerializedObject so = new SerializedObject(pageComp);
         so.FindProperty("category").intValue = category;
         so.FindProperty("titleText").objectReferenceValue = titleText;
+        so.FindProperty("tableGroup").objectReferenceValue = tableGroupGo;
         SerializedProperty rowValueTextsProp = so.FindProperty("rowValueTexts");
         rowValueTextsProp.arraySize = rowValueTexts.Length;
         for (int i = 0; i < rowValueTexts.Length; i++)
@@ -4380,14 +4506,49 @@ public static class SceneSetup
         "LotusYellow.png", "LotusBlue.png", "LotusPink.png",
     };
 
-    // Very first thing the player sees: flowers rain from the top and pile
-    // up until the whole screen is covered, then the canvas hides itself,
-    // revealing the start menu that's been sitting ready underneath.
-    // Highest sorting order of any canvas — this has to cover absolutely
-    // everything, since it's the very first frame of the game.
-    static void CreateIntroScreen()
+    // One themed falling-object set per game slot on the loader screen
+    // (LoaderScreenController's gameStartKeys 1-7, see plan items 9-11) —
+    // index 0 is БК's own flowers (lady_bug's real sprites), 1-6 are the
+    // other 6 mega-project games' prep artwork, generated via
+    // yandex_api/gen_asset.sh straight into Assets/Sprites/loader/. All 7
+    // currently still hand off into the SAME real game once their own
+    // countdown finishes (see CreateLoaderScreen) — only game 1 actually
+    // exists yet, per feedback that's fine/expected for now. isPrimaryGame
+    // (true only for index 0) gates the fill-buzz sound and the menu music
+    // cue — per feedback those are БК-specific content, not generic loader
+    // chrome, so games 2-7 fill silently and don't trigger the menu music.
+    static readonly (string canvasName, string spriteFolder, string[] sprites, bool isPrimaryGame)[] GameIntroThemes =
     {
-        var canvasGo = new GameObject("IntroCanvas");
+        ("IntroCanvas", "Assets/Sprites/lady_bug/", IntroFlowerSprites, true),
+        ("IntroCanvasGear", "Assets/Sprites/loader/", new[] { "Gear1.png", "Gear2.png", "Gear3.png" }, false),
+        ("IntroCanvasStone", "Assets/Sprites/loader/", new[] { "Stone1.png", "Stone2.png", "Stone3.png" }, false),
+        ("IntroCanvasCatPaw", "Assets/Sprites/loader/", new[] { "CatPaw1.png", "CatPaw2.png", "CatPaw3.png" }, false),
+        ("IntroCanvasQuestionMark", "Assets/Sprites/loader/", new[] { "QuestionMark1.png", "QuestionMark2.png", "QuestionMark3.png" }, false),
+        ("IntroCanvasMeditation", "Assets/Sprites/loader/", new[] { "Meditation1.png", "Meditation2.png", "Meditation3.png" }, false),
+        ("IntroCanvasRobotHead", "Assets/Sprites/loader/", new[] { "RobotHead1.png", "RobotHead2.png", "RobotHead3.png" }, false),
+    };
+
+    static IntroSequence[] CreateAllIntroScreens()
+    {
+        var result = new IntroSequence[GameIntroThemes.Length];
+        for (int i = 0; i < GameIntroThemes.Length; i++)
+        {
+            var theme = GameIntroThemes[i];
+            result[i] = CreateIntroScreen(theme.canvasName, theme.spriteFolder, theme.sprites, theme.isPrimaryGame);
+        }
+        return result;
+    }
+
+    // Very first thing the player sees once they hold down that game's key
+    // on the loader screen: themed objects (spriteFiles, from spriteFolder)
+    // rain from the top and pile up until the whole screen is covered, then
+    // the canvas hides itself, revealing the start menu that's been sitting
+    // ready underneath. Highest sorting order of any canvas — has to cover
+    // absolutely everything (all 7 of these instances share it — never
+    // shown at once, see CreateAllIntroScreens/LoaderScreenController).
+    static IntroSequence CreateIntroScreen(string canvasName, string spriteFolder, string[] spriteFiles, bool isPrimaryGame)
+    {
+        var canvasGo = new GameObject(canvasName);
         Canvas canvas = canvasGo.AddComponent<Canvas>();
         canvas.renderMode = RenderMode.ScreenSpaceOverlay;
         canvas.sortingOrder = 220;
@@ -4444,10 +4605,10 @@ public static class SceneSetup
 
             foreach (int col in colOrder)
             {
-                string spriteFile = IntroFlowerSprites[rng.Next(IntroFlowerSprites.Length)];
-                Texture2D tex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/" + spriteFile);
+                string spriteFile = spriteFiles[rng.Next(spriteFiles.Length)];
+                Texture2D tex = AssetDatabase.LoadAssetAtPath<Texture2D>(spriteFolder + spriteFile);
 
-                var flowerGo = new GameObject("Flower_" + row + "_" + col);
+                var flowerGo = new GameObject("Obj_" + row + "_" + col);
                 flowerGo.transform.SetParent(canvasGo.transform, false);
                 RawImage img = flowerGo.AddComponent<RawImage>();
                 img.texture = tex;
@@ -4491,12 +4652,12 @@ public static class SceneSetup
 
         Texture2D[] countdownTextures =
         {
-            AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/CountdownGraffiti5.png"),
-            AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/CountdownGraffiti4.png"),
-            AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/CountdownGraffiti3.png"),
-            AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/CountdownGraffiti2.png"),
-            AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/CountdownGraffiti1.png"),
-            AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/CountdownGraffitiStart.png"),
+            AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/CountdownGraffiti5.png"),
+            AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/CountdownGraffiti4.png"),
+            AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/CountdownGraffiti3.png"),
+            AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/CountdownGraffiti2.png"),
+            AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/CountdownGraffiti1.png"),
+            AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/CountdownGraffitiStart.png"),
         };
 
         // Continuous buzz while the flowers fill in (grows with them, see
@@ -4504,16 +4665,22 @@ public static class SceneSetup
         // reused rather than a new asset since it already reads as "in the
         // air, building energy". Gear-shift plays once per countdown digit.
         // Neither autoplays — IntroSequence starts/stops them on its own
-        // schedule instead of the instant the scene loads.
-        var introGo = new GameObject("IntroSequence");
-        AudioSource introBuzzSource = introGo.AddComponent<AudioSource>();
-        introBuzzSource.clip = AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Audio/Buzz.wav");
-        introBuzzSource.loop = true;
-        introBuzzSource.playOnAwake = false;
-        introBuzzSource.volume = 0f;
+        // schedule instead of the instant the scene loads. Buzz (and the
+        // menu music cue below) are БК-specific — games 2-7 fill silently,
+        // per feedback (isPrimaryGame, see GameIntroThemes).
+        var introGo = new GameObject(canvasName + "_Controller");
+        AudioSource introBuzzSource = null;
+        if (isPrimaryGame)
+        {
+            introBuzzSource = introGo.AddComponent<AudioSource>();
+            introBuzzSource.clip = AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Audio/lady_bug/Buzz.wav");
+            introBuzzSource.loop = true;
+            introBuzzSource.playOnAwake = false;
+            introBuzzSource.volume = 0f;
+        }
 
         AudioSource introShiftSource = introGo.AddComponent<AudioSource>();
-        introShiftSource.clip = AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Audio/GearShift.wav");
+        introShiftSource.clip = AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Audio/lady_bug/GearShift.wav");
         introShiftSource.playOnAwake = false;
 
         IntroSequence intro = introGo.AddComponent<IntroSequence>();
@@ -4525,9 +4692,16 @@ public static class SceneSetup
         countdownTexturesProp.arraySize = countdownTextures.Length;
         for (int i = 0; i < countdownTextures.Length; i++)
             countdownTexturesProp.GetArrayElementAtIndex(i).objectReferenceValue = countdownTextures[i];
-        introSo.FindProperty("buzzSource").objectReferenceValue = introBuzzSource;
-        introSo.FindProperty("shiftSource").objectReferenceValue = introShiftSource;
+        if (isPrimaryGame)
+            introSo.FindProperty("buzzSource").objectReferenceValue = introBuzzSource;
+        // Wired for every slot (not just isPrimaryGame) — Finish() always
+        // calls startScreen.OnRevealed() to reset the menu's carousel back
+        // to page 0 right as it becomes visible, regardless of which
+        // slot's intro just finished. isPrimaryGame itself is also wired
+        // here so RunCountdown can gate its PlayMusic() call to БК only.
         introSo.FindProperty("startScreen").objectReferenceValue = Object.FindObjectOfType<StartScreenController>();
+        introSo.FindProperty("isPrimaryGame").boolValue = isPrimaryGame;
+        introSo.FindProperty("shiftSource").objectReferenceValue = introShiftSource;
         SerializedProperty flowersProp = introSo.FindProperty("flowers");
         flowersProp.arraySize = orderedFlowers.Count;
         for (int i = 0; i < orderedFlowers.Count; i++)
@@ -4539,6 +4713,8 @@ public static class SceneSetup
         // now-removed auto-start-or-skip Start() to hide this instantly;
         // nothing does that anymore, so it needs to start off explicitly).
         canvasGo.SetActive(false);
+
+        return intro;
     }
 
     // The true first thing shown when the game boots (sortingOrder above
@@ -4550,7 +4726,7 @@ public static class SceneSetup
     // what to try, synced to a highlighted control (LoaderScreenController
     // drives both). Holding a key hands off to IntroSequence; releasing
     // early aborts back here — see LoaderScreenController/IntroSequence.
-    static void CreateLoaderScreen()
+    static void CreateLoaderScreen(IntroSequence[] gameIntros)
     {
         var canvasGo = new GameObject("LoaderCanvas");
         Canvas canvas = canvasGo.AddComponent<Canvas>();
@@ -4573,7 +4749,7 @@ public static class SceneSetup
         backdropRt.offsetMin = Vector2.zero;
         backdropRt.offsetMax = Vector2.zero;
 
-        Texture2D panelTexture = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/ControlPanelDiagram.png");
+        Texture2D panelTexture = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/loader/ControlPanelDiagram.png");
         var panelGo = new GameObject("PanelDiagram");
         panelGo.transform.SetParent(canvasGo.transform, false);
         RawImage panelImage = panelGo.AddComponent<RawImage>();
@@ -4587,13 +4763,20 @@ public static class SceneSetup
         panelRt.sizeDelta = new Vector2(panelWidth, panelHeight);
         panelRt.anchoredPosition = new Vector2(0f, 60f);
 
-        GameObject knob1 = CreatePanelHighlight(panelGo.transform, "HighlightKnob1", panelWidth, panelHeight, 200f, 300f, 150f, 150f);
-        GameObject knob2 = CreatePanelHighlight(panelGo.transform, "HighlightKnob2", panelWidth, panelHeight, 380f, 300f, 150f, 150f);
-        GameObject joystick = CreatePanelHighlight(panelGo.transform, "HighlightJoystick", panelWidth, panelHeight, 600f, 250f, 170f, 230f);
-        GameObject button1 = CreatePanelHighlight(panelGo.transform, "HighlightButton1", panelWidth, panelHeight, 830f, 260f, 170f, 170f);
-        GameObject button2 = CreatePanelHighlight(panelGo.transform, "HighlightButton2", panelWidth, panelHeight, 990f, 260f, 170f, 170f);
-        GameObject button3 = CreatePanelHighlight(panelGo.transform, "HighlightButton3", panelWidth, panelHeight, 1150f, 260f, 170f, 170f);
-        GameObject sensor = CreatePanelHighlight(panelGo.transform, "HighlightSensor", panelWidth, panelHeight, 1380f, 290f, 190f, 190f);
+        // Layout matches ControlPanelDiagram.png's own 1600x420 source
+        // space: white button top-left above the 2 laser rangefinders
+        // (датчики — long red beam + a short pale "palm" crossing it),
+        // joystick top-middle with a red/green button pair below it, and a
+        // rotating handle (рукоятка, a dial with a pointer) on the right —
+        // NOT the wifi-style icon this used to be, per feedback that it
+        // reads as a wireless icon rather than a physical twist-knob.
+        GameObject buttonWhite = CreatePanelHighlight(panelGo.transform, "HighlightButtonWhite", panelWidth, panelHeight, 290f, 110f, 150f, 150f);
+        GameObject rangefinder1 = CreatePanelHighlight(panelGo.transform, "HighlightRangefinder1", panelWidth, panelHeight, 200f, 300f, 130f, 180f);
+        GameObject rangefinder2 = CreatePanelHighlight(panelGo.transform, "HighlightRangefinder2", panelWidth, panelHeight, 380f, 300f, 130f, 180f);
+        GameObject joystick = CreatePanelHighlight(panelGo.transform, "HighlightJoystick", panelWidth, panelHeight, 760f, 150f, 170f, 220f);
+        GameObject buttonRed = CreatePanelHighlight(panelGo.transform, "HighlightButtonRed", panelWidth, panelHeight, 680f, 330f, 150f, 150f);
+        GameObject buttonGreen = CreatePanelHighlight(panelGo.transform, "HighlightButtonGreen", panelWidth, panelHeight, 860f, 330f, 150f, 150f);
+        GameObject rotaryHandle = CreatePanelHighlight(panelGo.transform, "HighlightRotaryHandle", panelWidth, panelHeight, 1380f, 260f, 170f, 170f);
 
         var messageGo = new GameObject("MessageText");
         messageGo.transform.SetParent(canvasGo.transform, false);
@@ -4614,31 +4797,91 @@ public static class SceneSetup
         messageRt.sizeDelta = new Vector2(1700f, 100f);
         messageRt.anchoredPosition = new Vector2(0f, -260f);
 
+        // Static, always on screen (unlike the cycling prompt above it) —
+        // the hold duration itself doesn't change per-prompt, so it doesn't
+        // need to slide in and out with each one.
+        var holdHintGo = new GameObject("HoldHintText");
+        holdHintGo.transform.SetParent(canvasGo.transform, false);
+        Text holdHintText = holdHintGo.AddComponent<Text>();
+        holdHintText.font = GameFont;
+        holdHintText.fontSize = 34;
+        holdHintText.fontStyle = FontStyle.Bold;
+        holdHintText.alignment = TextAnchor.MiddleCenter;
+        holdHintText.color = new Color(0.85f, 0.85f, 0.85f);
+        holdHintText.text = "И НЕ ОТПУСКАЙТЕ 5 СЕК";
+        Outline holdHintOutline = holdHintGo.AddComponent<Outline>();
+        holdHintOutline.effectColor = Color.black;
+        holdHintOutline.effectDistance = new Vector2(2f, -2f);
+        RectTransform holdHintRt = holdHintText.GetComponent<RectTransform>();
+        holdHintRt.anchorMin = new Vector2(0.5f, 1f);
+        holdHintRt.anchorMax = new Vector2(0.5f, 1f);
+        holdHintRt.pivot = new Vector2(0.5f, 0.5f);
+        holdHintRt.sizeDelta = new Vector2(1000f, 60f);
+        holdHintRt.anchoredPosition = new Vector2(0f, -340f);
+
+        // TEMPORARY — real cabinets get a real controller (see class
+        // comment on LoaderScreenController); until then this spells out
+        // the debug stand-in (number keys 1-7) directly, since nothing
+        // else on this screen otherwise explains it.
+        var debugHintGo = new GameObject("DebugKeysHintText");
+        debugHintGo.transform.SetParent(canvasGo.transform, false);
+        Text debugHintText = debugHintGo.AddComponent<Text>();
+        debugHintText.font = GameFont;
+        debugHintText.fontSize = 26;
+        debugHintText.fontStyle = FontStyle.Bold;
+        debugHintText.alignment = TextAnchor.MiddleCenter;
+        debugHintText.color = new Color(1f, 0.7f, 0.3f);
+        debugHintText.text = "ВРЕМЕННО ДЛЯ ОТЛАДКИ - НАЖИМАЙТЕ ЦИФРЫ 1..7 ДЛЯ ЗАПУСКА ИГР";
+        Outline debugHintOutline = debugHintGo.AddComponent<Outline>();
+        debugHintOutline.effectColor = Color.black;
+        debugHintOutline.effectDistance = new Vector2(2f, -2f);
+        RectTransform debugHintRt = debugHintText.GetComponent<RectTransform>();
+        debugHintRt.anchorMin = new Vector2(0.5f, 1f);
+        debugHintRt.anchorMax = new Vector2(0.5f, 1f);
+        debugHintRt.pivot = new Vector2(0.5f, 0.5f);
+        debugHintRt.sizeDelta = new Vector2(1400f, 60f);
+        debugHintRt.anchoredPosition = new Vector2(0f, -480f);
+
         var loaderManagerGo = new GameObject("LoaderScreenManager");
         LoaderScreenController loader = loaderManagerGo.AddComponent<LoaderScreenController>();
         SerializedObject loaderSo = new SerializedObject(loader);
         loaderSo.FindProperty("canvasRoot").objectReferenceValue = canvasGo;
-        loaderSo.FindProperty("introSequence").objectReferenceValue = Object.FindObjectOfType<IntroSequence>();
         loaderSo.FindProperty("messageText").objectReferenceValue = messageText;
+
+        // Index-matched to LoaderScreenController's own gameStartKeys (keys
+        // 1-7) — all 7 now have their own themed falling-object screen (see
+        // CreateAllIntroScreens/GameIntroThemes), even though only game 1
+        // (БК/lady_bug) is a real playable game yet — pressing 2-7 still
+        // shows that game's own art, then hands off into БК regardless
+        // (IntroSequence.Finish always reveals the one real menu), per
+        // feedback that this is fine/expected for debugging until games
+        // 2-7 actually exist.
+        SerializedProperty gameIntrosProp = loaderSo.FindProperty("gameIntros");
+        gameIntrosProp.arraySize = gameIntros.Length;
+        for (int i = 0; i < gameIntros.Length; i++)
+            gameIntrosProp.GetArrayElementAtIndex(i).objectReferenceValue = gameIntros[i];
 
         SerializedProperty buttonProp = loaderSo.FindProperty("buttonHighlights");
         buttonProp.arraySize = 3;
-        buttonProp.GetArrayElementAtIndex(0).objectReferenceValue = button1;
-        buttonProp.GetArrayElementAtIndex(1).objectReferenceValue = button2;
-        buttonProp.GetArrayElementAtIndex(2).objectReferenceValue = button3;
+        buttonProp.GetArrayElementAtIndex(0).objectReferenceValue = buttonWhite;
+        buttonProp.GetArrayElementAtIndex(1).objectReferenceValue = buttonRed;
+        buttonProp.GetArrayElementAtIndex(2).objectReferenceValue = buttonGreen;
 
+        // "Датчик" means the 2 laser rangefinders now, not the rotary
+        // handle — see the panel layout comment above.
         SerializedProperty sensorProp = loaderSo.FindProperty("sensorHighlights");
-        sensorProp.arraySize = 1;
-        sensorProp.GetArrayElementAtIndex(0).objectReferenceValue = sensor;
+        sensorProp.arraySize = 2;
+        sensorProp.GetArrayElementAtIndex(0).objectReferenceValue = rangefinder1;
+        sensorProp.GetArrayElementAtIndex(1).objectReferenceValue = rangefinder2;
 
         SerializedProperty joystickProp = loaderSo.FindProperty("joystickHighlights");
         joystickProp.arraySize = 1;
         joystickProp.GetArrayElementAtIndex(0).objectReferenceValue = joystick;
 
+        // "Рукоятка" is the one rotary dial now, not the rangefinders.
         SerializedProperty knobProp = loaderSo.FindProperty("knobHighlights");
-        knobProp.arraySize = 2;
-        knobProp.GetArrayElementAtIndex(0).objectReferenceValue = knob1;
-        knobProp.GetArrayElementAtIndex(1).objectReferenceValue = knob2;
+        knobProp.arraySize = 1;
+        knobProp.GetArrayElementAtIndex(0).objectReferenceValue = rotaryHandle;
 
         loaderSo.ApplyModifiedPropertiesWithoutUndo();
     }
@@ -4816,9 +5059,20 @@ public static class SceneSetup
     // panels' own background (PositionWedgePanel) instead of a plain
     // rotated rectangle, so neighbouring panels' edges actually line up
     // and read as real pizza-slice cuts sharing one center point, not a
-    // handful of separately floating boxes. A thin bright seam right at
-    // each angular edge sells the "cut line" — same dark fill alpha
-    // (0.45) every other HUD panel already used.
+    // handful of separately floating boxes. A decorative FRAME band (both
+    // angular edges and the outer arc) samples a generated texture
+    // (WedgeFrameArt.png — gold ornamental swirls/stars concentrated at the
+    // edges, plain dark navy center, requested rather than hand-drawn from
+    // primitives) — that border is what marks where one wedge ends and the
+    // next begins, no separate procedural "seam" highlight line drawn on
+    // top of it anymore (an earlier pass added one — a thin recolored
+    // strip cutting across the panel — but per feedback it read as an
+    // arbitrary drawn line regardless of what color fed it, since the line
+    // itself, not just its color, was always the procedural part; the
+    // frame's own edge already does that job). The interior stays the
+    // plain flat tint, so the digits/labels and SpeedIndicator's
+    // green-red tick fill — the only things that stay programmatic — sit
+    // on a clean, uncluttered background.
     static Texture2D CreateWedgeTexture(int size, float angleWidthDeg, bool opensRight)
     {
         var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
@@ -4826,12 +5080,24 @@ public static class SceneSetup
         tex.wrapMode = TextureWrapMode.Clamp;
 
         float halfAngle = angleWidthDeg * 0.5f * Mathf.Deg2Rad;
-        const float seamWidth = 0.035f; // radians of angular margin right at each edge that gets the bright seam tint
+        const float frameAngularWidth = 0.16f; // radians of angular margin (from each edge) that gets the decorative frame art
+        float frameRadialWidth = size * 0.14f; // pixels in from the outer arc that get the same frame art
+
         float apexX = opensRight ? 0f : size - 1;
         float apexY = (size - 1) / 2f;
-        Color fill = new Color(0f, 0f, 0f, 0.45f);
-        Color seam = new Color(1f, 1f, 1f, 0.35f);
+
+        const string frameSourcePath = "Assets/Sprites/lady_bug/WedgeFrameArt.png";
+        var frameSourceImporter = AssetImporter.GetAtPath(frameSourcePath) as TextureImporter;
+        if (frameSourceImporter != null && !frameSourceImporter.isReadable)
+        {
+            frameSourceImporter.isReadable = true;
+            frameSourceImporter.SaveAndReimport();
+        }
+        Texture2D frameSource = AssetDatabase.LoadAssetAtPath<Texture2D>(frameSourcePath);
+
         Color clear = new Color(0f, 0f, 0f, 0f);
+        Color plainFill = new Color(0f, 0f, 0f, 0.45f);
+        Color fallbackFrameColor = new Color(1f, 0.85f, 0.3f, 0.55f); // used only if the generated art failed to load
 
         for (int y = 0; y < size; y++)
         {
@@ -4847,13 +5113,24 @@ public static class SceneSetup
                     continue;
                 }
 
-                float absAngle = Mathf.Abs(Mathf.Atan2(dy, Mathf.Max(dx, 0.0001f)));
+                float angle = Mathf.Atan2(dy, Mathf.Max(dx, 0.0001f));
+                float absAngle = Mathf.Abs(angle);
                 if (absAngle > halfAngle)
+                {
                     tex.SetPixel(x, y, clear);
-                else if (absAngle > halfAngle - seamWidth)
-                    tex.SetPixel(x, y, seam);
+                }
+                else if (absAngle > halfAngle - frameAngularWidth || dist > size - 1 - frameRadialWidth)
+                {
+                    Color frame = frameSource != null
+                        ? frameSource.GetPixelBilinear((float)x / size, (float)y / size)
+                        : fallbackFrameColor;
+                    frame.a = frameSource != null ? 0.95f : frame.a;
+                    tex.SetPixel(x, y, frame);
+                }
                 else
-                    tex.SetPixel(x, y, fill);
+                {
+                    tex.SetPixel(x, y, plainFill);
+                }
             }
         }
 
@@ -4874,7 +5151,7 @@ public static class SceneSetup
         rt.anchorMax = new Vector2(rightCorner ? 1f : 0f, 1f);
         rt.pivot = new Vector2(rightCorner ? 1f : 0f, 0.5f);
         rt.sizeDelta = new Vector2(radius, radius);
-        rt.anchoredPosition = new Vector2(rightCorner ? -20f : 20f, -20f); // same 20px corner inset the old edge-stack used
+        rt.anchoredPosition = new Vector2(rightCorner ? -30f : 30f, -30f); // 20 * 1.5 — corner inset scaled up along with the rest of the fan
         // Sign flips with the corner — the wedge texture's own "opens
         // toward screen center" direction mirrors between corners, so the
         // SAME physical sweep (top edge -> down the side edge as angleDeg
@@ -4894,6 +5171,12 @@ public static class SceneSetup
     // one point). Positive localAngleDeg is mirrored for the right corner
     // along with everything else here, so a given angle always reads as
     // "toward the same physical side" regardless of which corner it's in.
+    // Counter-rotates against the wedge panel's own rotation (PositionWedgePanel
+    // tilts the whole wedge to sweep across its corner) so content always
+    // ends up axis-aligned on screen — per feedback that label/value text
+    // should stay flat/horizontal and readable, not tilted to match its
+    // wedge's angle. Harmless for the rotation-symmetric content (the round
+    // badge, the square tick dots) that also goes through here.
     static RectTransform CreateWedgeContent(Transform wedgeParent, bool rightCorner, float localAngleDeg, float contentRadius, float width, float height)
     {
         var go = new GameObject("Content");
@@ -4906,6 +5189,9 @@ public static class SceneSetup
         float rad = localAngleDeg * Mathf.Deg2Rad;
         float sign = rightCorner ? -1f : 1f;
         rt.anchoredPosition = new Vector2(sign * contentRadius * Mathf.Cos(rad), contentRadius * Mathf.Sin(rad));
+        RectTransform parentRt = wedgeParent.GetComponent<RectTransform>();
+        float parentZ = parentRt != null ? parentRt.localEulerAngles.z : 0f;
+        rt.localEulerAngles = new Vector3(0f, 0f, -parentZ);
         return rt;
     }
 
@@ -4921,7 +5207,7 @@ public static class SceneSetup
         for (int i = 0; i < count; i++)
         {
             float angle = count > 1 ? Mathf.Lerp(-halfSpanDeg, halfSpanDeg, (float)i / (count - 1)) : 0f;
-            RectTransform tickContentRt = CreateWedgeContent(wedgeParent, rightCorner, angle, radius, 22f, 22f);
+            RectTransform tickContentRt = CreateWedgeContent(wedgeParent, rightCorner, angle, radius, 33f, 33f); // 22 * 1.5
             var tickGo = new GameObject("Tick" + i);
             tickGo.transform.SetParent(tickContentRt, false);
             Image tick = tickGo.AddComponent<Image>();
@@ -4965,7 +5251,7 @@ public static class SceneSetup
         return tex;
     }
 
-    static Texture2D CreateDashTexture()
+    static Texture2D CreateDashTexture(int seedOffset = 0)
     {
         // Wider and taller than a flat 1x8 (dash = solid white, gap = solid
         // road-gray, razor-straight cut between them) — the extra
@@ -4991,9 +5277,15 @@ public static class SceneSetup
         tex.wrapMode = TextureWrapMode.Repeat;
         tex.filterMode = FilterMode.Bilinear;
 
-        DrawDashBand(tex, 0 * bandHeight, width, bandHeight, seed: 777, edgeJitter: 3, chipChance: 0.05, wavy: false);
-        DrawDashBand(tex, 1 * bandHeight, width, bandHeight, seed: 991, edgeJitter: 6, chipChance: 0.12, wavy: false);
-        DrawDashBand(tex, 2 * bandHeight, width, bandHeight, seed: 313, edgeJitter: 2, chipChance: 0.08, wavy: true);
+        // seedOffset varies the actual RNG seeds (not just re-seeding with
+        // the same numbers) so different callers — e.g. CreateDashedDivider,
+        // once per lane divider — get genuinely different chip/jitter
+        // patterns instead of every divider line rendering pixel-identical
+        // to every other one, per feedback that both lines currently look
+        // like the same style.
+        DrawDashBand(tex, 0 * bandHeight, width, bandHeight, seed: 777 + seedOffset, edgeJitter: 3, chipChance: 0.05, wavy: false);
+        DrawDashBand(tex, 1 * bandHeight, width, bandHeight, seed: 991 + seedOffset, edgeJitter: 6, chipChance: 0.12, wavy: false);
+        DrawDashBand(tex, 2 * bandHeight, width, bandHeight, seed: 313 + seedOffset, edgeJitter: 2, chipChance: 0.08, wavy: true);
 
         tex.Apply();
         return tex;
@@ -5300,8 +5592,8 @@ public static class SceneSetup
         Shader shader = Shader.Find("Legacy Shaders/Transparent/Diffuse") ?? Shader.Find("Standard");
         Material material = new Material(shader) { color = new Color(0f, 0f, 0f, 0.35f) };
 
-        System.IO.Directory.CreateDirectory("Assets/Materials");
-        string materialPath = "Assets/Materials/" + materialName + ".mat";
+        System.IO.Directory.CreateDirectory("Assets/Materials/lady_bug");
+        string materialPath = "Assets/Materials/lady_bug/" + materialName + ".mat";
         AssetDatabase.DeleteAsset(materialPath);
         AssetDatabase.CreateAsset(material, materialPath);
         renderer.sharedMaterial = material;
