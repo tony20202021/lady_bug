@@ -19,6 +19,12 @@ public class PlayerAnimator : MonoBehaviour
     [SerializeField] private Texture2D[] airFrames; // wing-flap cycle order
     [SerializeField] private float legFrameInterval = 0.12f;
     [SerializeField] private float wingFrameInterval = 0.09f; // flapping reads faster than running legs
+    // Animation pace follows CurrentSpeed (min..max km/h) between these two
+    // multipliers — a touch slower than baseline at the game's minimum speed,
+    // capped well below 2x at the maximum so the frame cycle never gets fast
+    // enough to blur/merge into a smear.
+    [SerializeField] private float minAnimSpeedMultiplier = 0.7f;
+    [SerializeField] private float maxAnimSpeedMultiplier = 1.6f;
 
     private Renderer _spriteRenderer;
     private int _frameIndex;
@@ -36,15 +42,29 @@ public class PlayerAnimator : MonoBehaviour
         if (sprite == null || player == null)
             return;
 
+        float speedFactor = GetAnimSpeedFactor();
+
         float angle = player.IsAirborne
-            ? Mathf.Sin(Time.time * flapCycleSpeed) * flapTiltAngle
-            : Mathf.Sin(Time.time * runCycleSpeed) * runTiltAngle;
+            ? Mathf.Sin(Time.time * flapCycleSpeed * speedFactor) * flapTiltAngle
+            : Mathf.Sin(Time.time * runCycleSpeed * speedFactor) * runTiltAngle;
         sprite.localRotation = Quaternion.Euler(0f, 0f, angle);
 
-        UpdateFrame();
+        UpdateFrame(speedFactor);
     }
 
-    private void UpdateFrame()
+    // Normalizes CurrentSpeed (min..max km/h) into the min/maxAnimSpeedMultiplier
+    // range, so slower road speed reads as a slightly lazier gait and faster
+    // road speed as a quicker one, without ever exceeding the cap.
+    private float GetAnimSpeedFactor()
+    {
+        if (SpeedController.Instance == null)
+            return 1f;
+
+        float t = Mathf.InverseLerp(SpeedController.Instance.MinSpeed, SpeedController.Instance.MaxSpeed, SpeedController.Instance.CurrentSpeed);
+        return Mathf.Lerp(minAnimSpeedMultiplier, maxAnimSpeedMultiplier, t);
+    }
+
+    private void UpdateFrame(float speedFactor)
     {
         if (_spriteRenderer == null)
             return;
@@ -66,7 +86,7 @@ public class PlayerAnimator : MonoBehaviour
             return;
         }
 
-        float interval = airborne ? wingFrameInterval : legFrameInterval;
+        float interval = (airborne ? wingFrameInterval : legFrameInterval) / speedFactor;
         _frameTimer += Time.deltaTime;
         if (_frameTimer >= interval)
         {

@@ -190,8 +190,17 @@ public class StartScreenController : MonoBehaviour
     // what's actually on screen the instant it becomes visible.
     public void OnRevealed()
     {
-        _lastCarouselPage = -1;
-        _pageDwellElapsed = 0f;
+        // Shows page 0 synchronously, right here, instead of just resetting
+        // _lastCarouselPage and waiting for the next Update — Finish() (the
+        // caller) makes this menu's own canvas visible immediately, in the
+        // same breath, so whatever ShowCarouselPageGeneric last left active
+        // (some page well past ЦЕЛЬ, from cycling silently in the
+        // background) would otherwise render for a stray frame or more
+        // before Update ever got a chance to notice and correct it —
+        // exactly the brief "wrong page flashes first" glitch this was
+        // meant to fix in the first place.
+        if (carouselPages != null && carouselPages.Length > 0)
+            ShowCarouselPageGeneric(carouselPages, carouselBackground, ref _lastCarouselPage, ref _pageDwellElapsed, 0);
     }
 
     private void Update()

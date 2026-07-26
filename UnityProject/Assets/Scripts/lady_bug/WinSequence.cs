@@ -146,8 +146,15 @@ public class WinSequence : MonoBehaviour
 
         // Same idea as RunSequence's own entity cleanup, just without the
         // fade — this is meant to read as "the road pausing to ask a
-        // question", not the start of the real ending.
+        // question", not the start of the real ending. BigArchSpawner runs
+        // on its own timer independent of EntitySpawner (see RunSequence's
+        // own identical comment below) — without disabling it here too, it
+        // could drop a fresh arch right after this same clearing pass,
+        // which is exactly what was happening (a big arch still showing up
+        // during this "everything cleared" moment).
         foreach (var spawner in FindObjectsOfType<EntitySpawner>())
+            spawner.enabled = false;
+        foreach (var spawner in FindObjectsOfType<BigArchSpawner>())
             spawner.enabled = false;
         foreach (var entity in FindObjectsOfType<MovingEntity>())
             if (entity != null)
@@ -193,6 +200,8 @@ public class WinSequence : MonoBehaviour
             if (SpeedController.Instance != null)
                 SpeedController.Instance.CancelDecelerate();
             foreach (var spawner in FindObjectsOfType<EntitySpawner>())
+                spawner.enabled = true;
+            foreach (var spawner in FindObjectsOfType<BigArchSpawner>())
                 spawner.enabled = true;
             yield break;
         }

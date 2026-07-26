@@ -1360,7 +1360,7 @@ public static class SceneSetup
         // (not a hardcoded 1920x1080 offset) — stays flush against the real
         // corner on any aspect ratio, instead of drifting/clipping when the
         // actual screen isn't exactly 16:9.
-        Texture2D distanceWedgeTexture = CreateWedgeTexture(512, LeftWedgeAngle, true);
+        Texture2D distanceWedgeTexture = CreateWedgeTexture(512, LeftWedgeAngle * 2f, true);
         const float leftContentWidth = 225f; // 150 * 1.5
 
         var distancePanelGo = new GameObject("DistancePanel");
@@ -1368,10 +1368,19 @@ public static class SceneSetup
         RawImage distancePanelImage = distancePanelGo.AddComponent<RawImage>();
         distancePanelImage.texture = distanceWedgeTexture;
 
+        // Rotated to the corner's own center (45°, not ДИСТАНЦИЯ's own
+        // 22.5°) — this panel now carries the WHOLE 90° baked frame image
+        // (both ДИСТАНЦИЯ's and ВРЕМЯ's slices at once, see CreateWedgeTexture),
+        // so it has to sit centered on the full quarter, not tucked into
+        // just the first half of it. ДИСТАНЦИЯ's own content then needs an
+        // explicit +22.5° offset to land back at its real 22.5° position
+        // relative to this now-differently-rotated parent (45-22.5=22.5,
+        // see repo history for the full derivation) — ВРЕМЯ's own panel
+        // below is unaffected and keeps localAngleDeg=0 at its original 67.5°.
         RectTransform distancePanelRt = distancePanelGo.GetComponent<RectTransform>();
-        PositionWedgePanel(distancePanelRt, false, LeftWedgeAngle * 0.5f, FanRadius);
+        PositionWedgePanel(distancePanelRt, false, LeftWedgeAngle, FanRadius);
 
-        RectTransform distanceContentRt = CreateWedgeContent(distancePanelGo.transform, false, 0f, WedgeContentRadius, leftContentWidth, 135f);
+        RectTransform distanceContentRt = CreateWedgeContent(distancePanelGo.transform, false, LeftWedgeAngle * 0.5f, WedgeContentRadius, leftContentWidth, 135f);
 
         CreatePanelLabel(distanceContentRt, "ДИСТАНЦИЯ");
 
@@ -1403,7 +1412,7 @@ public static class SceneSetup
 
         // Score panel — right-corner fan (ОЧКИ/ТРЮКИ), mirrored from the
         // left-corner one above.
-        Texture2D rightWedgeTexture = CreateWedgeTexture(512, RightWedgeAngle, false);
+        Texture2D rightWedgeTexture = CreateWedgeTexture(512, RightWedgeAngle * 2f, false);
         const float rightContentWidth = 345f; // 230 * 1.5
         const float scoreAngle = RightWedgeAngle * 0.5f;
 
@@ -1412,10 +1421,19 @@ public static class SceneSetup
         RawImage panelImage = panelGo.AddComponent<RawImage>();
         panelImage.texture = rightWedgeTexture;
 
+        // Rotated to the corner's own center (RightWedgeAngle=45°, not
+        // ОЧКИ's own scoreAngle=22.5°) — this panel now carries the WHOLE
+        // 90° baked frame image (both ОЧКИ's and ТРЮКИ's slices at once,
+        // see CreateWedgeTexture), so it has to sit centered on the full
+        // quarter. ОЧКИ's own content then needs an explicit scoreAngle
+        // offset (45-22.5=22.5, see DistancePanel's own comment for the
+        // full derivation) to land back at its real 22.5° position — the
+        // counterAnchor math below still uses scoreAngle as the true
+        // absolute angle, unaffected by this panel's own rotation changing.
         RectTransform panelRt = panelGo.GetComponent<RectTransform>();
-        PositionWedgePanel(panelRt, true, scoreAngle, FanRadius);
+        PositionWedgePanel(panelRt, true, RightWedgeAngle, FanRadius);
 
-        RectTransform scoreContentRt = CreateWedgeContent(panelGo.transform, true, 0f, WedgeContentRadius, rightContentWidth, 150f);
+        RectTransform scoreContentRt = CreateWedgeContent(panelGo.transform, true, scoreAngle, WedgeContentRadius, rightContentWidth, 150f);
 
         CreatePanelLabel(scoreContentRt, "ОЧКИ");
 
@@ -1473,14 +1491,17 @@ public static class SceneSetup
         so.ApplyModifiedPropertiesWithoutUndo();
 
         // Timer panel — left-corner fan, outermost slice (closest to the
-        // side edge).
-        Texture2D timerWedgeTexture = CreateWedgeTexture(512, LeftWedgeAngle, true);
+        // side edge). No background image of its own anymore — DistancePanel's
+        // one baked frame already covers this whole quarter (see its own
+        // comment above), so this is now just an invisible anchor point;
+        // its own rotation/content angle are unchanged from before and
+        // still land ВРЕМЯ at the correct 67.5°.
         var timerPanelGo = new GameObject("TimerPanel");
         timerPanelGo.transform.SetParent(canvasGo.transform, false);
-        RawImage timerPanelImage = timerPanelGo.AddComponent<RawImage>();
-        timerPanelImage.texture = timerWedgeTexture;
 
-        RectTransform timerPanelRt = timerPanelGo.GetComponent<RectTransform>();
+        // No RawImage on this one anymore, so unlike before, nothing else
+        // implicitly provides a RectTransform — has to be added explicitly.
+        RectTransform timerPanelRt = timerPanelGo.AddComponent<RectTransform>();
         PositionWedgePanel(timerPanelRt, false, LeftWedgeAngle * 1.5f, FanRadius);
 
         RectTransform timerContentRt = CreateWedgeContent(timerPanelGo.transform, false, 0f, WedgeContentRadius, leftContentWidth, 105f);
@@ -1530,24 +1551,38 @@ public static class SceneSetup
         RectTransform gearSpeedPanelRt = gearSpeedPanelGo.AddComponent<RectTransform>();
         PositionWedgePanel(gearSpeedPanelRt, false, gearSpeedCenterAngle, FanRadius);
 
-        // Close in toward the apex — a distinct "hub" spot, clear of the
-        // tick ring further out. Right at the apex/corner itself — "the
-        // very center" per feedback, not partway out like the rest of the
-        // fan — with a small round badge behind the digit for contrast,
-        // since there's no wedge background here to sit on anymore.
-        const float gearHubRadius = 60f; // 40 * 1.5
-        const float gearHubBadgeSize = 114f; // 76 * 1.5
-        Texture2D gearHubBadgeTexture = CreateCircleTexture(128, new Color(0f, 0f, 0f, 0.45f));
+        // The round badge and the speed-arc track are baked directly into
+        // the apex/corner itself — "the very center" per feedback, not
+        // partway out like the rest of the fan — with a small round badge
+        // behind the digit for contrast: a plain filled circle plus a
+        // slightly larger ring behind it for a border, both procedural
+        // (CreateCircleTexture), same primitives-only approach as the
+        // wedge itself — an earlier pass tried generated/baked art here,
+        // reverted per feedback.
+        const float gearHubRadius = 60f;
+        const float gearHubBadgeSize = 114f;
         RectTransform gearBadgeContentRt = CreateWedgeContent(gearSpeedPanelGo.transform, false, 0f, gearHubRadius, gearHubBadgeSize, gearHubBadgeSize);
-        var gearBadgeGo = new GameObject("GearBadge");
-        gearBadgeGo.transform.SetParent(gearBadgeContentRt, false);
-        RawImage gearBadgeImage = gearBadgeGo.AddComponent<RawImage>();
-        gearBadgeImage.texture = gearHubBadgeTexture;
-        RectTransform gearBadgeRt = gearBadgeImage.GetComponent<RectTransform>();
-        gearBadgeRt.anchorMin = Vector2.zero;
-        gearBadgeRt.anchorMax = Vector2.one;
-        gearBadgeRt.offsetMin = Vector2.zero;
-        gearBadgeRt.offsetMax = Vector2.zero;
+
+        var gearBadgeRingGo = new GameObject("GearBadgeRing");
+        gearBadgeRingGo.transform.SetParent(gearBadgeContentRt, false);
+        RawImage gearBadgeRingImage = gearBadgeRingGo.AddComponent<RawImage>();
+        gearBadgeRingImage.texture = CreateCircleTexture(128, new Color(1f, 0.75f, 0.2f, 0.9f));
+        RectTransform gearBadgeRingRt = gearBadgeRingImage.GetComponent<RectTransform>();
+        gearBadgeRingRt.anchorMin = Vector2.zero;
+        gearBadgeRingRt.anchorMax = Vector2.one;
+        gearBadgeRingRt.offsetMin = Vector2.zero;
+        gearBadgeRingRt.offsetMax = Vector2.zero;
+
+        var gearBadgeFillGo = new GameObject("GearBadgeFill");
+        gearBadgeFillGo.transform.SetParent(gearBadgeContentRt, false);
+        RawImage gearBadgeFillImage = gearBadgeFillGo.AddComponent<RawImage>();
+        gearBadgeFillImage.texture = CreateCircleTexture(128, new Color(0.08f, 0.14f, 0.18f, 0.85f));
+        RectTransform gearBadgeFillRt = gearBadgeFillImage.GetComponent<RectTransform>();
+        gearBadgeFillRt.anchorMin = new Vector2(0.5f, 0.5f);
+        gearBadgeFillRt.anchorMax = new Vector2(0.5f, 0.5f);
+        gearBadgeFillRt.pivot = new Vector2(0.5f, 0.5f);
+        gearBadgeFillRt.sizeDelta = new Vector2(gearHubBadgeSize * 0.8f, gearHubBadgeSize * 0.8f);
+        gearBadgeFillRt.anchoredPosition = Vector2.zero;
 
         var gearDigitGo = new GameObject("GearDigit");
         gearDigitGo.transform.SetParent(gearBadgeContentRt, false);
@@ -1565,12 +1600,11 @@ public static class SceneSetup
         gearDigitRt.offsetMin = Vector2.zero;
         gearDigitRt.offsetMax = Vector2.zero;
 
-        // Ring of tick dots, closer in toward the corner now (was out near
-        // the fan's own outer edge) at a shared radius — same radius for
-        // all of them is what makes them read as a curved arc/dial instead
-        // of a scatter of dots. Colors (green -> red) are assigned at
-        // runtime by SpeedIndicator itself, along with which ones are
-        // "lit" — these just start dim.
+        // Ring of tick dots, closer in toward the corner at a shared radius
+        // — same radius for all of them is what makes them read as a
+        // curved arc/dial instead of a scatter of dots. Colors (green ->
+        // red) are assigned at runtime by SpeedIndicator itself, along
+        // with which ones are "lit" — these just start dim.
         Image[] speedTicks = CreateTickRing(gearSpeedPanelGo.transform, false, 10, 210f, LeftWedgeAngle - 4f);
 
         var speedManagerGo = new GameObject("SpeedIndicator");
@@ -1595,27 +1629,39 @@ public static class SceneSetup
         var highScoreGo = new GameObject("HighScoreManager");
         highScoreGo.AddComponent<HighScoreManager>();
 
-        // Right-corner counterpart to the new left-corner gear+speed hub —
-        // same standalone dial shape (round badge + arc of tick dots, no
-        // wedge background/seam of its own, sitting between ОЧКИ and
-        // ТРЮКИ), just empty for now — reserved for a future indicator,
-        // per feedback, not tied to any data yet.
+        // Right-corner counterpart to the left-corner gear+speed hub — same
+        // standalone dial shape (round badge + arc of tick dots, no wedge
+        // background/seam of its own, sitting between ОЧКИ and ТРЮКИ), just
+        // empty for now — reserved for a future indicator, per feedback,
+        // not tied to any data yet. Same procedural circle-texture badge as
+        // the left corner's own (no generated/baked art here either).
         var emptyHubGo = new GameObject("RightHubPlaceholder");
         emptyHubGo.transform.SetParent(canvasGo.transform, false);
         RectTransform emptyHubRt = emptyHubGo.AddComponent<RectTransform>();
         PositionWedgePanel(emptyHubRt, true, RightWedgeAngle, FanRadius);
 
-        Texture2D emptyHubBadgeTexture = CreateCircleTexture(128, new Color(0f, 0f, 0f, 0.45f));
         RectTransform emptyBadgeContentRt = CreateWedgeContent(emptyHubGo.transform, true, 0f, 60f, 114f, 114f);
-        var emptyBadgeGo = new GameObject("Badge");
-        emptyBadgeGo.transform.SetParent(emptyBadgeContentRt, false);
-        RawImage emptyBadgeImage = emptyBadgeGo.AddComponent<RawImage>();
-        emptyBadgeImage.texture = emptyHubBadgeTexture;
-        RectTransform emptyBadgeRt = emptyBadgeImage.GetComponent<RectTransform>();
-        emptyBadgeRt.anchorMin = Vector2.zero;
-        emptyBadgeRt.anchorMax = Vector2.one;
-        emptyBadgeRt.offsetMin = Vector2.zero;
-        emptyBadgeRt.offsetMax = Vector2.zero;
+
+        var emptyBadgeRingGo = new GameObject("BadgeRing");
+        emptyBadgeRingGo.transform.SetParent(emptyBadgeContentRt, false);
+        RawImage emptyBadgeRingImage = emptyBadgeRingGo.AddComponent<RawImage>();
+        emptyBadgeRingImage.texture = CreateCircleTexture(128, new Color(1f, 0.75f, 0.2f, 0.9f));
+        RectTransform emptyBadgeRingRt = emptyBadgeRingImage.GetComponent<RectTransform>();
+        emptyBadgeRingRt.anchorMin = Vector2.zero;
+        emptyBadgeRingRt.anchorMax = Vector2.one;
+        emptyBadgeRingRt.offsetMin = Vector2.zero;
+        emptyBadgeRingRt.offsetMax = Vector2.zero;
+
+        var emptyBadgeFillGo = new GameObject("BadgeFill");
+        emptyBadgeFillGo.transform.SetParent(emptyBadgeContentRt, false);
+        RawImage emptyBadgeFillImage = emptyBadgeFillGo.AddComponent<RawImage>();
+        emptyBadgeFillImage.texture = CreateCircleTexture(128, new Color(0.08f, 0.14f, 0.18f, 0.85f));
+        RectTransform emptyBadgeFillRt = emptyBadgeFillImage.GetComponent<RectTransform>();
+        emptyBadgeFillRt.anchorMin = new Vector2(0.5f, 0.5f);
+        emptyBadgeFillRt.anchorMax = new Vector2(0.5f, 0.5f);
+        emptyBadgeFillRt.pivot = new Vector2(0.5f, 0.5f);
+        emptyBadgeFillRt.sizeDelta = new Vector2(114f * 0.8f, 114f * 0.8f);
+        emptyBadgeFillRt.anchoredPosition = Vector2.zero;
 
         CreateTickRing(emptyHubGo.transform, true, 10, 210f, RightWedgeAngle - 4f);
     }
@@ -1730,9 +1776,15 @@ public static class SceneSetup
         // Shown for a plain, unanimated 5s hold right before the webcam
         // screen (CaptureRecordPhoto) — same dark statsBackdrop already up
         // from the stats pages just before it, so this doesn't need its
-        // own background.
+        // own background. A nested Canvas with overrideSorting, not just a
+        // plain child of scoreCanvas (sortingOrder 0 by default) — the
+        // webcam screen's own PhotoCaptureCanvas sits at 210, so a plain
+        // child here rendered behind its gray backdrop instead of over it.
         var newRecordAnnounceGo = new GameObject("NewRecordAnnounceText");
         newRecordAnnounceGo.transform.SetParent(scoreCanvas.transform, false);
+        Canvas newRecordAnnounceCanvas = newRecordAnnounceGo.AddComponent<Canvas>();
+        newRecordAnnounceCanvas.overrideSorting = true;
+        newRecordAnnounceCanvas.sortingOrder = 215; // above PhotoCaptureCanvas's 210
         Text newRecordAnnounceText = newRecordAnnounceGo.AddComponent<Text>();
         newRecordAnnounceText.font = GameFont;
         newRecordAnnounceText.fontSize = 48;
@@ -2089,16 +2141,19 @@ public static class SceneSetup
 
         canvasGo.AddComponent<GraphicRaycaster>();
 
-        Texture2D rightWedgeTexture = CreateWedgeTexture(512, RightWedgeAngle, false);
         const float rightContentWidth = 345f; // 230 * 1.5
         const float tricksAngle = RightWedgeAngle * 1.5f;
 
+        // No background image of its own — ScorePanel (CreateScoreUI, a
+        // different canvas but the same screen position) already carries
+        // the one baked frame covering this whole quarter, same reasoning
+        // as TimerPanel's own comment in CreateScoreUI. This is just an
+        // invisible anchor point; its own rotation/content angle are
+        // unchanged from before and still land ТРЮКИ at the correct 67.5°.
         var panelGo = new GameObject("TricksPanel");
         panelGo.transform.SetParent(canvasGo.transform, false);
-        RawImage panelImage = panelGo.AddComponent<RawImage>();
-        panelImage.texture = rightWedgeTexture;
 
-        RectTransform panelRt = panelGo.GetComponent<RectTransform>();
+        RectTransform panelRt = panelGo.AddComponent<RectTransform>();
         PositionWedgePanel(panelRt, true, tricksAngle, FanRadius);
 
         RectTransform tricksContentRt = CreateWedgeContent(panelGo.transform, true, 0f, WedgeContentRadius, rightContentWidth, 180f);
@@ -5053,26 +5108,19 @@ public static class SceneSetup
         return tex;
     }
 
-    // A single pizza-slice wedge — apex at the left edge (opensRight) or
-    // right edge (!opensRight) of the canvas, symmetric around its own
-    // vertical middle, spanning angleWidthDeg total. Used as the HUD fan
-    // panels' own background (PositionWedgePanel) instead of a plain
-    // rotated rectangle, so neighbouring panels' edges actually line up
-    // and read as real pizza-slice cuts sharing one center point, not a
-    // handful of separately floating boxes. A decorative FRAME band (both
-    // angular edges and the outer arc) samples a generated texture
-    // (WedgeFrameArt.png — gold ornamental swirls/stars concentrated at the
-    // edges, plain dark navy center, requested rather than hand-drawn from
-    // primitives) — that border is what marks where one wedge ends and the
-    // next begins, no separate procedural "seam" highlight line drawn on
-    // top of it anymore (an earlier pass added one — a thin recolored
-    // strip cutting across the panel — but per feedback it read as an
-    // arbitrary drawn line regardless of what color fed it, since the line
-    // itself, not just its color, was always the procedural part; the
-    // frame's own edge already does that job). The interior stays the
-    // plain flat tint, so the digits/labels and SpeedIndicator's
-    // green-red tick fill — the only things that stay programmatic — sit
-    // on a clean, uncluttered background.
+    // A single 90°-wide corner fan — apex at the left edge (opensRight) or
+    // right edge (!opensRight) — covering both of a corner's real wedge
+    // slices (ДИСТАНЦИЯ+ВРЕМЯ or ОЧКИ+ТРЮКИ) in one shape, split into its
+    // own 2 sectors by a thin divider line at the midpoint, with a solid
+    // color border band around the whole outer boundary (both straight
+    // edges + the outer arc). Computed pixel-by-pixel here at scene
+    // rebuild time — per feedback that this should go back to plain
+    // primitives, not a generated/baked image (an earlier pass tried
+    // AI-generated art for this, both as a sampled texture and as a single
+    // fully-generated picture; reverted per feedback). The digits/labels
+    // and SpeedIndicator's green-red tick fill are the only things that
+    // stay programmatic on top, same as before, sitting over the flat
+    // interior fill.
     static Texture2D CreateWedgeTexture(int size, float angleWidthDeg, bool opensRight)
     {
         var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
@@ -5080,24 +5128,16 @@ public static class SceneSetup
         tex.wrapMode = TextureWrapMode.Clamp;
 
         float halfAngle = angleWidthDeg * 0.5f * Mathf.Deg2Rad;
-        const float frameAngularWidth = 0.16f; // radians of angular margin (from each edge) that gets the decorative frame art
-        float frameRadialWidth = size * 0.14f; // pixels in from the outer arc that get the same frame art
-
+        const float borderAngularWidth = 0.14f; // radians of angular margin (from each edge) that gets the border color
+        float borderRadialWidth = size * 0.09f; // pixels in from the outer arc that get the same border color
+        const float dividerHalfWidth = 0.012f; // radians either side of the sector midpoint that gets the thin divider line
         float apexX = opensRight ? 0f : size - 1;
         float apexY = (size - 1) / 2f;
 
-        const string frameSourcePath = "Assets/Sprites/lady_bug/WedgeFrameArt.png";
-        var frameSourceImporter = AssetImporter.GetAtPath(frameSourcePath) as TextureImporter;
-        if (frameSourceImporter != null && !frameSourceImporter.isReadable)
-        {
-            frameSourceImporter.isReadable = true;
-            frameSourceImporter.SaveAndReimport();
-        }
-        Texture2D frameSource = AssetDatabase.LoadAssetAtPath<Texture2D>(frameSourcePath);
-
         Color clear = new Color(0f, 0f, 0f, 0f);
-        Color plainFill = new Color(0f, 0f, 0f, 0.45f);
-        Color fallbackFrameColor = new Color(1f, 0.85f, 0.3f, 0.55f); // used only if the generated art failed to load
+        Color fill = new Color(0.08f, 0.14f, 0.18f, 0.55f);
+        Color border = new Color(1f, 0.75f, 0.2f, 0.9f);
+        Color divider = new Color(1f, 1f, 1f, 0.4f);
 
         for (int y = 0; y < size; y++)
         {
@@ -5119,17 +5159,17 @@ public static class SceneSetup
                 {
                     tex.SetPixel(x, y, clear);
                 }
-                else if (absAngle > halfAngle - frameAngularWidth || dist > size - 1 - frameRadialWidth)
+                else if (absAngle > halfAngle - borderAngularWidth || dist > size - 1 - borderRadialWidth)
                 {
-                    Color frame = frameSource != null
-                        ? frameSource.GetPixelBilinear((float)x / size, (float)y / size)
-                        : fallbackFrameColor;
-                    frame.a = frameSource != null ? 0.95f : frame.a;
-                    tex.SetPixel(x, y, frame);
+                    tex.SetPixel(x, y, border);
+                }
+                else if (absAngle < dividerHalfWidth && dist > size * 0.12f)
+                {
+                    tex.SetPixel(x, y, divider);
                 }
                 else
                 {
-                    tex.SetPixel(x, y, plainFill);
+                    tex.SetPixel(x, y, fill);
                 }
             }
         }
