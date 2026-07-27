@@ -19,6 +19,6 @@ public class DistanceIndicator : MonoBehaviour
 
         float traveled = SpeedController.Instance.DistanceKm;
         float targetKm = WinSequence.Instance.WinDistanceKm;
-        distanceText.text = string.Format("{0:0.0} из {1:0}", traveled, targetKm);
+        distanceText.text = string.Format("{0:0.0}\nиз\n{1:0}", traveled, targetKm);
     }
 }

@@ -199,6 +199,23 @@ public static class SceneSetup
         messageRt.sizeDelta = new Vector2(1400f, 170f);
         messageRt.anchoredPosition = new Vector2(0f, 390f);
 
+        var previewGo = new GameObject("CameraPreview");
+        previewGo.transform.SetParent(canvasGo.transform, false);
+        RawImage preview = previewGo.AddComponent<RawImage>();
+        preview.color = Color.white;
+        RectTransform previewRt = preview.GetComponent<RectTransform>();
+        previewRt.anchorMin = new Vector2(0.5f, 0.5f);
+        previewRt.anchorMax = new Vector2(0.5f, 0.5f);
+        previewRt.pivot = new Vector2(0.5f, 0.5f);
+        previewRt.sizeDelta = new Vector2(800f, 600f);
+        previewRt.anchoredPosition = new Vector2(0f, -60f);
+
+        // Created after (so drawn in front of) CameraPreview above — its box
+        // overlaps the top of that 800x600 preview by design (see below),
+        // and UI siblings paint in creation order, so this used to render
+        // BEHIND the preview once its texture actually had a live camera
+        // frame in it (empty/transparent at first, which is why the text
+        // still read as visible for a moment before being covered).
         var smileGo = new GameObject("SmileText");
         smileGo.transform.SetParent(canvasGo.transform, false);
         Text smile = smileGo.AddComponent<Text>();
@@ -220,17 +237,6 @@ public static class SceneSetup
         // doesn't spill past its edges.
         smileRt.sizeDelta = new Vector2(760f, 90f);
         smileRt.anchoredPosition = new Vector2(0f, 185f);
-
-        var previewGo = new GameObject("CameraPreview");
-        previewGo.transform.SetParent(canvasGo.transform, false);
-        RawImage preview = previewGo.AddComponent<RawImage>();
-        preview.color = Color.white;
-        RectTransform previewRt = preview.GetComponent<RectTransform>();
-        previewRt.anchorMin = new Vector2(0.5f, 0.5f);
-        previewRt.anchorMax = new Vector2(0.5f, 0.5f);
-        previewRt.pivot = new Vector2(0.5f, 0.5f);
-        previewRt.sizeDelta = new Vector2(800f, 600f);
-        previewRt.anchoredPosition = new Vector2(0f, -60f);
 
         var countdownGo = new GameObject("Countdown");
         countdownGo.transform.SetParent(canvasGo.transform, false);
@@ -1305,23 +1311,23 @@ public static class SceneSetup
     // Small title pinned to the top of a HUD panel (e.g. "ОЧКИ" above the
     // score number) — same look TricksPanel already used, pulled out so
     // every stacked panel in CreateScoreUI can share it.
-    static void CreatePanelLabel(Transform parent, string text)
+    static void CreatePanelLabel(Transform parent, string text, Color? color = null)
     {
         var labelGo = new GameObject("Label");
         labelGo.transform.SetParent(parent, false);
         Text label = labelGo.AddComponent<Text>();
         label.font = GameFont;
-        label.fontSize = 27; // 18 * 1.5
+        label.fontSize = 31; // 27 * 1.15
         label.fontStyle = FontStyle.Bold;
         label.alignment = TextAnchor.UpperCenter;
-        label.color = new Color(0.85f, 0.85f, 0.85f);
+        label.color = color ?? new Color(0.85f, 0.85f, 0.85f);
         label.text = text;
         RectTransform labelRt = labelGo.GetComponent<RectTransform>();
         labelRt.anchorMin = new Vector2(0f, 1f);
         labelRt.anchorMax = new Vector2(1f, 1f);
         labelRt.pivot = new Vector2(0.5f, 1f);
-        labelRt.sizeDelta = new Vector2(0f, 39f); // 26 * 1.5
-        labelRt.anchoredPosition = new Vector2(0f, -9f); // 6 * 1.5
+        labelRt.sizeDelta = new Vector2(0f, 45f); // 39 * 1.15
+        labelRt.anchoredPosition = new Vector2(0f, -10f); // 9 * 1.15
     }
 
     // Gameplay HUD panels fan out from each top corner as real pizza-slice
@@ -1334,10 +1340,10 @@ public static class SceneSetup
     // own slice (see gearSpeedCenterAngle below). angleDeg (the slice's own
     // center) is measured from the top edge (0°) sweeping down toward the
     // side edge (90°), same convention for both corners.
-    const float FanRadius = 420f; // 280 * 1.5 — corner indicators sized up per feedback
+    const float FanRadius = 483f; // 420 * 1.15 — corner indicators sized up again per feedback
     const float LeftWedgeAngle = 45f; // 90° / 2 panels
     const float RightWedgeAngle = 45f; // 90° / 2 panels
-    const float WedgeContentRadius = 285f; // 190 * 1.5, how far out along its slice's centerline a panel's label/value sits
+    const float WedgeContentRadius = 328f; // 285 * 1.15, how far out along its slice's centerline a panel's label/value sits
 
     static void CreateScoreUI(out Canvas canvas)
     {
@@ -1361,7 +1367,7 @@ public static class SceneSetup
         // corner on any aspect ratio, instead of drifting/clipping when the
         // actual screen isn't exactly 16:9.
         Texture2D distanceWedgeTexture = CreateWedgeTexture(512, LeftWedgeAngle * 2f, true);
-        const float leftContentWidth = 225f; // 150 * 1.5
+        const float leftContentWidth = 259f; // 225 * 1.15
 
         var distancePanelGo = new GameObject("DistancePanel");
         distancePanelGo.transform.SetParent(canvasGo.transform, false);
@@ -1378,9 +1384,20 @@ public static class SceneSetup
         // see repo history for the full derivation) — ВРЕМЯ's own panel
         // below is unaffected and keeps localAngleDeg=0 at its original 67.5°.
         RectTransform distancePanelRt = distancePanelGo.GetComponent<RectTransform>();
-        PositionWedgePanel(distancePanelRt, false, LeftWedgeAngle, FanRadius);
+        PositionWedgePanel(distancePanelRt, false, LeftWedgeAngle, FanRadius, (float)distanceWedgeTexture.height / distanceWedgeTexture.width);
 
-        RectTransform distanceContentRt = CreateWedgeContent(distancePanelGo.transform, false, LeftWedgeAngle * 0.5f, WedgeContentRadius, leftContentWidth, 135f);
+        // Taller box (was 155) — the distance value now reads across 3 lines
+        // ("X" / "из" / "Y", see DistanceIndicator) instead of one "X из Y"
+        // line, per feedback. Trimmed back down from an initial 290 (which
+        // left visibly more empty space above the value text than the
+        // smaller 50pt font actually needed, reading almost like a blank
+        // line before the first number) now that the font is smaller.
+        RectTransform distanceContentRt = CreateWedgeContent(distancePanelGo.transform, false, LeftWedgeAngle * 0.5f, WedgeContentRadius, leftContentWidth, 260f);
+        // The taller box above grows from its own center, so its top edge
+        // (where the "ДИСТАНЦИЯ" label hangs from, see CreatePanelLabel)
+        // moves up along with it. Nudged right and (net) up a bit from
+        // where it started, per feedback.
+        NudgeContentScreenSpace(distanceContentRt, distancePanelGo.transform, new Vector2(36f, -50f));
 
         CreatePanelLabel(distanceContentRt, "ДИСТАНЦИЯ");
 
@@ -1388,11 +1405,12 @@ public static class SceneSetup
         distanceTextGo.transform.SetParent(distanceContentRt, false);
         Text distanceText = distanceTextGo.AddComponent<Text>();
         distanceText.font = GameFont;
-        distanceText.fontSize = 60;
+        distanceText.fontSize = 50; // smaller, per feedback — 3 short lines don't need as large a font as the old single "X из Y" line did
         distanceText.fontStyle = FontStyle.Bold;
         distanceText.alignment = TextAnchor.MiddleCenter;
         distanceText.color = new Color(0.7f, 1f, 0.7f);
-        distanceText.text = "0 из 100";
+        distanceText.verticalOverflow = VerticalWrapMode.Overflow;
+        distanceText.text = "0\nиз\n100"; // DistanceIndicator overwrites this every frame with the real live value
 
         Outline distanceOutline = distanceTextGo.AddComponent<Outline>();
         distanceOutline.effectColor = Color.black;
@@ -1413,7 +1431,7 @@ public static class SceneSetup
         // Score panel — right-corner fan (ОЧКИ/ТРЮКИ), mirrored from the
         // left-corner one above.
         Texture2D rightWedgeTexture = CreateWedgeTexture(512, RightWedgeAngle * 2f, false);
-        const float rightContentWidth = 345f; // 230 * 1.5
+        const float rightContentWidth = 397f; // 345 * 1.15
         const float scoreAngle = RightWedgeAngle * 0.5f;
 
         var panelGo = new GameObject("ScorePanel");
@@ -1431,9 +1449,10 @@ public static class SceneSetup
         // counterAnchor math below still uses scoreAngle as the true
         // absolute angle, unaffected by this panel's own rotation changing.
         RectTransform panelRt = panelGo.GetComponent<RectTransform>();
-        PositionWedgePanel(panelRt, true, RightWedgeAngle, FanRadius);
+        PositionWedgePanel(panelRt, true, RightWedgeAngle, FanRadius, (float)rightWedgeTexture.height / rightWedgeTexture.width);
 
-        RectTransform scoreContentRt = CreateWedgeContent(panelGo.transform, true, scoreAngle, WedgeContentRadius, rightContentWidth, 150f);
+        RectTransform scoreContentRt = CreateWedgeContent(panelGo.transform, true, scoreAngle, WedgeContentRadius, rightContentWidth, 173f);
+        NudgeContentScreenSpace(scoreContentRt, panelGo.transform, new Vector2(-36f, 0f)); // further left still, per repeated feedback
 
         CreatePanelLabel(scoreContentRt, "ОЧКИ");
 
@@ -1441,7 +1460,7 @@ public static class SceneSetup
         textGo.transform.SetParent(scoreContentRt, false);
         Text scoreText = textGo.AddComponent<Text>();
         scoreText.font = GameFont;
-        scoreText.fontSize = 72;
+        scoreText.fontSize = 83;
         scoreText.fontStyle = FontStyle.Bold;
         scoreText.alignment = TextAnchor.MiddleCenter;
         scoreText.color = new Color(1f, 0.85f, 0.2f);
@@ -1504,7 +1523,8 @@ public static class SceneSetup
         RectTransform timerPanelRt = timerPanelGo.AddComponent<RectTransform>();
         PositionWedgePanel(timerPanelRt, false, LeftWedgeAngle * 1.5f, FanRadius);
 
-        RectTransform timerContentRt = CreateWedgeContent(timerPanelGo.transform, false, 0f, WedgeContentRadius, leftContentWidth, 105f);
+        RectTransform timerContentRt = CreateWedgeContent(timerPanelGo.transform, false, 0f, WedgeContentRadius, leftContentWidth, 121f);
+        NudgeContentScreenSpace(timerContentRt, timerPanelGo.transform, new Vector2(0f, -36f)); // lower still, per repeated feedback
 
         CreatePanelLabel(timerContentRt, "ВРЕМЯ");
 
@@ -1512,7 +1532,7 @@ public static class SceneSetup
         timerTextGo.transform.SetParent(timerContentRt, false);
         Text timerText = timerTextGo.AddComponent<Text>();
         timerText.font = GameFont;
-        timerText.fontSize = 45;
+        timerText.fontSize = 52;
         timerText.fontStyle = FontStyle.Bold;
         timerText.alignment = TextAnchor.MiddleCenter;
         timerText.color = Color.white;
@@ -1548,47 +1568,28 @@ public static class SceneSetup
 
         var gearSpeedPanelGo = new GameObject("GearSpeedPanel");
         gearSpeedPanelGo.transform.SetParent(canvasGo.transform, false);
-        RectTransform gearSpeedPanelRt = gearSpeedPanelGo.AddComponent<RectTransform>();
-        PositionWedgePanel(gearSpeedPanelRt, false, gearSpeedCenterAngle, FanRadius);
 
-        // The round badge and the speed-arc track are baked directly into
-        // the apex/corner itself — "the very center" per feedback, not
-        // partway out like the rest of the fan — with a small round badge
-        // behind the digit for contrast: a plain filled circle plus a
-        // slightly larger ring behind it for a border, both procedural
-        // (CreateCircleTexture), same primitives-only approach as the
-        // wedge itself — an earlier pass tried generated/baked art here,
-        // reverted per feedback.
-        const float gearHubRadius = 60f;
-        const float gearHubBadgeSize = 114f;
-        RectTransform gearBadgeContentRt = CreateWedgeContent(gearSpeedPanelGo.transform, false, 0f, gearHubRadius, gearHubBadgeSize, gearHubBadgeSize);
+        // The gear-digit hub is its own small nested quarter-sector now —
+        // same pie shape as the wedge itself (same 90° width, same apex),
+        // just smaller and closer in — per feedback that a plain circle
+        // badge read as visually inconsistent sitting inside a
+        // quarter-sector panel. Keeps the one border stripe removed from
+        // every other sector (see CreateWedgeTexture's withBorder) — this
+        // is the one shape it's kept for.
+        const float gearHubWedgeRadius = 155f;
+        Texture2D gearHubWedgeTexture = CreateWedgeTexture(400, LeftWedgeAngle * 2f, true, true, false);
+        RawImage gearSpeedPanelImage = gearSpeedPanelGo.AddComponent<RawImage>();
+        gearSpeedPanelImage.texture = gearHubWedgeTexture;
+        RectTransform gearSpeedPanelRt = gearSpeedPanelGo.GetComponent<RectTransform>();
+        PositionWedgePanel(gearSpeedPanelRt, false, gearSpeedCenterAngle, gearHubWedgeRadius, (float)gearHubWedgeTexture.height / gearHubWedgeTexture.width);
 
-        var gearBadgeRingGo = new GameObject("GearBadgeRing");
-        gearBadgeRingGo.transform.SetParent(gearBadgeContentRt, false);
-        RawImage gearBadgeRingImage = gearBadgeRingGo.AddComponent<RawImage>();
-        gearBadgeRingImage.texture = CreateCircleTexture(128, new Color(1f, 0.75f, 0.2f, 0.9f));
-        RectTransform gearBadgeRingRt = gearBadgeRingImage.GetComponent<RectTransform>();
-        gearBadgeRingRt.anchorMin = Vector2.zero;
-        gearBadgeRingRt.anchorMax = Vector2.one;
-        gearBadgeRingRt.offsetMin = Vector2.zero;
-        gearBadgeRingRt.offsetMax = Vector2.zero;
-
-        var gearBadgeFillGo = new GameObject("GearBadgeFill");
-        gearBadgeFillGo.transform.SetParent(gearBadgeContentRt, false);
-        RawImage gearBadgeFillImage = gearBadgeFillGo.AddComponent<RawImage>();
-        gearBadgeFillImage.texture = CreateCircleTexture(128, new Color(0.08f, 0.14f, 0.18f, 0.85f));
-        RectTransform gearBadgeFillRt = gearBadgeFillImage.GetComponent<RectTransform>();
-        gearBadgeFillRt.anchorMin = new Vector2(0.5f, 0.5f);
-        gearBadgeFillRt.anchorMax = new Vector2(0.5f, 0.5f);
-        gearBadgeFillRt.pivot = new Vector2(0.5f, 0.5f);
-        gearBadgeFillRt.sizeDelta = new Vector2(gearHubBadgeSize * 0.8f, gearHubBadgeSize * 0.8f);
-        gearBadgeFillRt.anchoredPosition = Vector2.zero;
+        RectTransform gearDigitContentRt = CreateWedgeContent(gearSpeedPanelGo.transform, false, 0f, gearHubWedgeRadius * 0.6f, 115f, 115f);
 
         var gearDigitGo = new GameObject("GearDigit");
-        gearDigitGo.transform.SetParent(gearBadgeContentRt, false);
+        gearDigitGo.transform.SetParent(gearDigitContentRt, false);
         Text gearDigitText = gearDigitGo.AddComponent<Text>();
         gearDigitText.font = GameFont;
-        gearDigitText.fontSize = 60;
+        gearDigitText.fontSize = 69;
         gearDigitText.fontStyle = FontStyle.Bold;
         gearDigitText.alignment = TextAnchor.MiddleCenter;
         gearDigitText.color = Color.white;
@@ -1604,8 +1605,14 @@ public static class SceneSetup
         // — same radius for all of them is what makes them read as a
         // curved arc/dial instead of a scatter of dots. Colors (green ->
         // red) are assigned at runtime by SpeedIndicator itself, along
-        // with which ones are "lit" — these just start dim.
-        Image[] speedTicks = CreateTickRing(gearSpeedPanelGo.transform, false, 10, 210f, LeftWedgeAngle - 4f);
+        // with which ones are "lit" — these just start dim. Bracketed on
+        // both sides by a thin curved guide line, same radius margin
+        // in/out, so the row reads as sitting on a dial track.
+        const float speedTickRadius = 242f; // 210 * 1.15
+        Image[] speedTicks = CreateTickRing(gearSpeedPanelGo.transform, false, 10, speedTickRadius, LeftWedgeAngle - 4f);
+        Color speedArcGuideColor = new Color(1f, 1f, 1f, 0.35f);
+        CreateArcGuide(gearSpeedPanelGo.transform, false, speedTickRadius - 30f, LeftWedgeAngle - 4f, speedArcGuideColor);
+        CreateArcGuide(gearSpeedPanelGo.transform, false, speedTickRadius + 30f, LeftWedgeAngle - 4f, speedArcGuideColor);
 
         var speedManagerGo = new GameObject("SpeedIndicator");
         SpeedIndicator speedIndicator = speedManagerGo.AddComponent<SpeedIndicator>();
@@ -1630,40 +1637,22 @@ public static class SceneSetup
         highScoreGo.AddComponent<HighScoreManager>();
 
         // Right-corner counterpart to the left-corner gear+speed hub — same
-        // standalone dial shape (round badge + arc of tick dots, no wedge
-        // background/seam of its own, sitting between ОЧКИ and ТРЮКИ), just
-        // empty for now — reserved for a future indicator, per feedback,
-        // not tied to any data yet. Same procedural circle-texture badge as
-        // the left corner's own (no generated/baked art here either).
+        // standalone dial shape (quarter-sector badge + arc of tick dots,
+        // no wedge background/seam of its own, sitting between ОЧКИ and
+        // ТРЮКИ), just empty for now — reserved for a future indicator, per
+        // feedback, not tied to any data yet. Same nested-quarter-sector
+        // badge shape as the left corner's own.
         var emptyHubGo = new GameObject("RightHubPlaceholder");
         emptyHubGo.transform.SetParent(canvasGo.transform, false);
-        RectTransform emptyHubRt = emptyHubGo.AddComponent<RectTransform>();
-        PositionWedgePanel(emptyHubRt, true, RightWedgeAngle, FanRadius);
+        Texture2D rightHubWedgeTexture = CreateWedgeTexture(400, RightWedgeAngle * 2f, false, true, false);
+        RawImage emptyHubImage = emptyHubGo.AddComponent<RawImage>();
+        emptyHubImage.texture = rightHubWedgeTexture;
+        RectTransform emptyHubRt = emptyHubGo.GetComponent<RectTransform>();
+        PositionWedgePanel(emptyHubRt, true, RightWedgeAngle, gearHubWedgeRadius, (float)rightHubWedgeTexture.height / rightHubWedgeTexture.width);
 
-        RectTransform emptyBadgeContentRt = CreateWedgeContent(emptyHubGo.transform, true, 0f, 60f, 114f, 114f);
-
-        var emptyBadgeRingGo = new GameObject("BadgeRing");
-        emptyBadgeRingGo.transform.SetParent(emptyBadgeContentRt, false);
-        RawImage emptyBadgeRingImage = emptyBadgeRingGo.AddComponent<RawImage>();
-        emptyBadgeRingImage.texture = CreateCircleTexture(128, new Color(1f, 0.75f, 0.2f, 0.9f));
-        RectTransform emptyBadgeRingRt = emptyBadgeRingImage.GetComponent<RectTransform>();
-        emptyBadgeRingRt.anchorMin = Vector2.zero;
-        emptyBadgeRingRt.anchorMax = Vector2.one;
-        emptyBadgeRingRt.offsetMin = Vector2.zero;
-        emptyBadgeRingRt.offsetMax = Vector2.zero;
-
-        var emptyBadgeFillGo = new GameObject("BadgeFill");
-        emptyBadgeFillGo.transform.SetParent(emptyBadgeContentRt, false);
-        RawImage emptyBadgeFillImage = emptyBadgeFillGo.AddComponent<RawImage>();
-        emptyBadgeFillImage.texture = CreateCircleTexture(128, new Color(0.08f, 0.14f, 0.18f, 0.85f));
-        RectTransform emptyBadgeFillRt = emptyBadgeFillImage.GetComponent<RectTransform>();
-        emptyBadgeFillRt.anchorMin = new Vector2(0.5f, 0.5f);
-        emptyBadgeFillRt.anchorMax = new Vector2(0.5f, 0.5f);
-        emptyBadgeFillRt.pivot = new Vector2(0.5f, 0.5f);
-        emptyBadgeFillRt.sizeDelta = new Vector2(114f * 0.8f, 114f * 0.8f);
-        emptyBadgeFillRt.anchoredPosition = Vector2.zero;
-
-        CreateTickRing(emptyHubGo.transform, true, 10, 210f, RightWedgeAngle - 4f);
+        CreateTickRing(emptyHubGo.transform, true, 10, speedTickRadius, RightWedgeAngle - 4f);
+        CreateArcGuide(emptyHubGo.transform, true, speedTickRadius - 30f, RightWedgeAngle - 4f, speedArcGuideColor);
+        CreateArcGuide(emptyHubGo.transform, true, speedTickRadius + 30f, RightWedgeAngle - 4f, speedArcGuideColor);
     }
 
     // One checkbox+text row for the post-win recap's stats pages — same
@@ -1787,7 +1776,7 @@ public static class SceneSetup
         newRecordAnnounceCanvas.sortingOrder = 215; // above PhotoCaptureCanvas's 210
         Text newRecordAnnounceText = newRecordAnnounceGo.AddComponent<Text>();
         newRecordAnnounceText.font = GameFont;
-        newRecordAnnounceText.fontSize = 48;
+        newRecordAnnounceText.fontSize = 56; // 48, bumped up a bit per feedback
         newRecordAnnounceText.fontStyle = FontStyle.Bold;
         newRecordAnnounceText.alignment = TextAnchor.MiddleCenter;
         newRecordAnnounceText.color = new Color(1f, 0.85f, 0.15f);
@@ -2141,7 +2130,7 @@ public static class SceneSetup
 
         canvasGo.AddComponent<GraphicRaycaster>();
 
-        const float rightContentWidth = 345f; // 230 * 1.5
+        const float rightContentWidth = 397f; // 345 * 1.15
         const float tricksAngle = RightWedgeAngle * 1.5f;
 
         // No background image of its own — ScorePanel (CreateScoreUI, a
@@ -2156,15 +2145,16 @@ public static class SceneSetup
         RectTransform panelRt = panelGo.AddComponent<RectTransform>();
         PositionWedgePanel(panelRt, true, tricksAngle, FanRadius);
 
-        RectTransform tricksContentRt = CreateWedgeContent(panelGo.transform, true, 0f, WedgeContentRadius, rightContentWidth, 180f);
+        RectTransform tricksContentRt = CreateWedgeContent(panelGo.transform, true, 0f, WedgeContentRadius, rightContentWidth, 207f);
+        NudgeContentScreenSpace(tricksContentRt, panelGo.transform, new Vector2(0f, -36f)); // lower still, per repeated feedback
 
-        CreatePanelLabel(tricksContentRt, "ТРЮКИ");
+        CreatePanelLabel(tricksContentRt, "ТРЮКИ", new Color(0.75f, 0.95f, 1f)); // brighter than the other panel labels, per feedback
 
         var textGo = new GameObject("TricksText");
         textGo.transform.SetParent(tricksContentRt, false);
         Text tricksText = textGo.AddComponent<Text>();
         tricksText.font = GameFont;
-        tricksText.fontSize = 84;
+        tricksText.fontSize = 97;
         tricksText.fontStyle = FontStyle.Bold;
         tricksText.alignment = TextAnchor.MiddleCenter;
         tricksText.color = new Color(0.6f, 0.9f, 1f);
@@ -2695,6 +2685,37 @@ public static class SceneSetup
         trickCarouselBgRt.offsetMin = Vector2.zero;
         trickCarouselBgRt.offsetMax = Vector2.zero;
 
+        // Each gesture page's "ВАШИ ДЕЙСТВИЯ" column gets its own pair of
+        // flat live-reaction bugs (see CreateGestureDiagramPage) — the
+        // player-2 one collected here so StartScreenController can toggle
+        // all of them together based on the 1-player/2-player choice, same
+        // as it already does for the real playerLeft.
+        var trainingPreviewLeftBugs = new System.Collections.Generic.List<GameObject>();
+
+        var squatPage = CreateGestureDiagramPage(trickCarouselRt, "ПРИСЕСТЬ", false, false, false, playerRight, playerLeft);
+        trainingPreviewLeftBugs.Add(squatPage.leftBug);
+
+        // Split from the old single shared "В СТОРОНУ" page into its
+        // own left/right page each — showing both directions on one
+        // page read as "which one am I even looking at" mid-gesture.
+        var leanLeftPage = CreateGestureDiagramPage(trickCarouselRt, "ВЛЕВО", false, true, false, playerRight, playerLeft);
+        trainingPreviewLeftBugs.Add(leanLeftPage.leftBug);
+        var leanRightPage = CreateGestureDiagramPage(trickCarouselRt, "ВПРАВО", true, false, false, playerRight, playerLeft);
+        trainingPreviewLeftBugs.Add(leanRightPage.leftBug);
+
+        var flapPage = CreateGestureDiagramPage(trickCarouselRt, "МАХАТЬ КРЫЛЬЯМИ", true, true, true, playerRight, playerLeft);
+        trainingPreviewLeftBugs.Add(flapPage.leftBug);
+
+        // АРКА/КОЛЬЦО get the same ОБРАЗЕЦ/ВАШИ ДЕЙСТВИЯ split as the
+        // gesture pages above — the other 5 trick pages (all built via the
+        // shared CreateTrickDiagramPage) still need their own routes/arcs
+        // rescaled to fit half a page first (some reach ±600+ natively) and
+        // are deferred for now.
+        var archPage = CreateArchTrickPage(trickCarouselRt, playerRight, playerLeft);
+        trainingPreviewLeftBugs.Add(archPage.leftBug);
+        var ringPage = CreateRingTrickPage(trickCarouselRt, playerRight, playerLeft);
+        trainingPreviewLeftBugs.Add(ringPage.leftBug);
+
         var trickCarouselPages = new System.Collections.Generic.List<GameObject>
         {
             // Gesture-move pages first (moved here from the main upfront
@@ -2703,18 +2724,13 @@ public static class SceneSetup
             // straight to СТАРТ doesn't need it repeated in their way),
             // trick pages after — knowing the moves before the tricks that
             // combine them reads better than the other order.
-            CreateGestureDiagramPage(trickCarouselRt, "ПРИСЕСТЬ", false, false, false),
+            squatPage.page,
+            leanLeftPage.page,
+            leanRightPage.page,
+            flapPage.page,
 
-            // Split from the old single shared "В СТОРОНУ" page into its
-            // own left/right page each — showing both directions on one
-            // page read as "which one am I even looking at" mid-gesture.
-            CreateGestureDiagramPage(trickCarouselRt, "ВЛЕВО", false, true, false),
-            CreateGestureDiagramPage(trickCarouselRt, "ВПРАВО", true, false, false),
-
-            CreateGestureDiagramPage(trickCarouselRt, "МАХАТЬ КРЫЛЬЯМИ", true, true, true),
-
-            CreateArchTrickPage(trickCarouselRt),
-            CreateRingTrickPage(trickCarouselRt),
+            archPage.page,
+            ringPage.page,
             CreateLeapfrogTrickPage(trickCarouselRt),
             CreateSyncTrickPage(trickCarouselRt),
             CreateHoverTrickPage(trickCarouselRt),
@@ -2723,57 +2739,6 @@ public static class SceneSetup
         };
         for (int i = 1; i < trickCarouselPages.Count; i++)
             trickCarouselPages[i].SetActive(false);
-
-        var trickTitleGo = new GameObject("TrickCarouselTitle");
-        trickTitleGo.transform.SetParent(trickCarouselGo.transform, false);
-        Text trickTitle = trickTitleGo.AddComponent<Text>();
-        trickTitle.font = GameFont;
-        trickTitle.fontSize = 44;
-        trickTitle.fontStyle = FontStyle.Bold;
-        trickTitle.alignment = TextAnchor.MiddleCenter;
-        trickTitle.color = new Color(1f, 0.85f, 0.2f);
-        trickTitle.text = "ДВИЖЕНИЯ И ТРЮКИ"; // covers both the gesture pages and the trick pages now sharing this carousel
-        trickTitleGo.AddComponent<Outline>().effectColor = Color.black;
-        RectTransform trickTitleRt = trickTitle.GetComponent<RectTransform>();
-        trickTitleRt.anchorMin = new Vector2(0.5f, 0.5f);
-        trickTitleRt.anchorMax = new Vector2(0.5f, 0.5f);
-        trickTitleRt.pivot = new Vector2(0.5f, 0.5f);
-        trickTitleRt.sizeDelta = new Vector2(1400f, 70f);
-        trickTitleRt.anchoredPosition = new Vector2(0f, 490f);
-
-        var trickHintGo = new GameObject("TrickCarouselHint");
-        trickHintGo.transform.SetParent(trickCarouselGo.transform, false);
-        Text trickHint = trickHintGo.AddComponent<Text>();
-        trickHint.font = GameFont;
-        trickHint.fontSize = 26;
-        trickHint.fontStyle = FontStyle.Bold;
-        trickHint.alignment = TextAnchor.MiddleCenter;
-        trickHint.color = new Color(0.85f, 0.85f, 0.85f);
-        trickHint.text = "ПРОБЕЛ / ВЗМАХ — К ТРЕНИРОВКЕ\nВНИЗ 5 СЕК — НАЗАД В МЕНЮ";
-        trickHintGo.AddComponent<Outline>().effectColor = Color.black;
-        RectTransform trickHintRt = trickHint.GetComponent<RectTransform>();
-        trickHintRt.anchorMin = new Vector2(0.5f, 0.5f);
-        trickHintRt.anchorMax = new Vector2(0.5f, 0.5f);
-        trickHintRt.pivot = new Vector2(0.5f, 0.5f);
-        trickHintRt.sizeDelta = new Vector2(900f, 80f);
-        trickHintRt.anchoredPosition = new Vector2(0f, -460f);
-
-        var trickExitCountdownGo = new GameObject("TrickCarouselExitCountdown");
-        trickExitCountdownGo.transform.SetParent(trickCarouselGo.transform, false);
-        Text trickExitCountdownText = trickExitCountdownGo.AddComponent<Text>();
-        trickExitCountdownText.font = GameFont;
-        trickExitCountdownText.fontSize = 90;
-        trickExitCountdownText.fontStyle = FontStyle.Bold;
-        trickExitCountdownText.alignment = TextAnchor.MiddleCenter;
-        trickExitCountdownText.color = new Color(1f, 0.85f, 0.15f);
-        trickExitCountdownGo.AddComponent<Outline>().effectColor = Color.black;
-        RectTransform trickExitCountdownRt = trickExitCountdownText.GetComponent<RectTransform>();
-        trickExitCountdownRt.anchorMin = new Vector2(0.5f, 0.5f);
-        trickExitCountdownRt.anchorMax = new Vector2(0.5f, 0.5f);
-        trickExitCountdownRt.pivot = new Vector2(0.5f, 0.5f);
-        trickExitCountdownRt.sizeDelta = new Vector2(240f, 130f);
-        trickExitCountdownRt.anchoredPosition = new Vector2(0f, -560f);
-        trickExitCountdownGo.SetActive(false);
 
         trickCarouselGo.SetActive(false);
 
@@ -3027,7 +2992,6 @@ public static class SceneSetup
         so.FindProperty("trickCarouselCanvasRoot").objectReferenceValue = trickCarouselGo;
         SetPrefabArray(so, "trickCarouselPages", trickCarouselPages);
         so.FindProperty("trickCarouselBackground").objectReferenceValue = trickCarouselBgGo;
-        so.FindProperty("trickCarouselExitCountdownText").objectReferenceValue = trickExitCountdownText;
         so.FindProperty("startOutline").objectReferenceValue = startRowOutline;
         so.FindProperty("startRowBg").objectReferenceValue = startRowBg;
         so.FindProperty("playerRight").objectReferenceValue = playerRight;
@@ -3038,6 +3002,7 @@ public static class SceneSetup
         so.FindProperty("gestureCanvasRight").objectReferenceValue = gestureCanvasRight;
         so.FindProperty("gestureCanvasLeft").objectReferenceValue = gestureCanvasLeft;
         so.FindProperty("musicSource").objectReferenceValue = musicSource;
+        SetPrefabArray(so, "trainingPreviewLeftBugs", trainingPreviewLeftBugs);
         so.ApplyModifiedPropertiesWithoutUndo();
     }
 
@@ -3110,6 +3075,158 @@ public static class SceneSetup
         rt.pivot = new Vector2(0.5f, 0.5f);
         rt.sizeDelta = new Vector2(1000f, 50f);
         rt.anchoredPosition = new Vector2(0f, 305f);
+    }
+
+    // Wraps a gesture/trick page's own diagram content into an "ОБРАЗЕЦ"
+    // (left) vs "ВАШИ ДЕЙСТВИЯ" (right) split, with a dashed line marking
+    // the middle — contentBuilder receives the left column as its parent,
+    // so each page's existing diagram-building code keeps working
+    // unmodified (it was already sized to fit well inside half the page's
+    // width). The right column gets one or two flat live-reaction bugs (see
+    // CreateLiveBugPreview) drawn the same way the ОБРАЗЕЦ side's own bug
+    // is, just driven by real input instead of a scripted loop — leftBug is
+    // handed back so the caller can collect it for the 1-player/2-player
+    // toggle (see trainingPreviewLeftBugs). The page's own main title stays
+    // where it already was, untouched, outside this split.
+    // sampleContentScale uniformly shrinks contentBuilder's output around
+    // the column's own center — gesture pages pass 1 (their content was
+    // already sized to fit half a page), but several trick pages' diagrams
+    // were built to span almost the FULL page width/height (routes/arcs
+    // reaching ±600+), well past half a page, and need shrinking down to
+    // actually fit next to ВАШИ ДЕЙСТВИЯ instead of spilling across it.
+    static void CreateTrainingSplit(GameObject page, GameObject playerRight, GameObject playerLeft, float sampleContentScale, out GameObject leftBug, System.Action<Transform> contentBuilder)
+    {
+        var sampleColumnGo = new GameObject("ObrazetsColumn");
+        sampleColumnGo.transform.SetParent(page.transform, false);
+        RectTransform sampleColumnRt = sampleColumnGo.AddComponent<RectTransform>();
+        sampleColumnRt.anchorMin = new Vector2(0f, 0f);
+        sampleColumnRt.anchorMax = new Vector2(0.5f, 1f);
+        sampleColumnRt.offsetMin = Vector2.zero;
+        sampleColumnRt.offsetMax = Vector2.zero;
+
+        CreateSplitColumnLabel(sampleColumnGo.transform, "ОБРАЗЕЦ", new Color(0.7f, 0.85f, 1f));
+
+        Transform sampleContentParent = sampleColumnGo.transform;
+        if (!Mathf.Approximately(sampleContentScale, 1f))
+        {
+            var scaledGo = new GameObject("ScaledContent");
+            scaledGo.transform.SetParent(sampleColumnGo.transform, false);
+            RectTransform scaledRt = scaledGo.AddComponent<RectTransform>();
+            scaledRt.anchorMin = new Vector2(0.5f, 0.5f);
+            scaledRt.anchorMax = new Vector2(0.5f, 0.5f);
+            scaledRt.pivot = new Vector2(0.5f, 0.5f);
+            scaledRt.sizeDelta = Vector2.zero;
+            scaledRt.anchoredPosition = Vector2.zero;
+            scaledGo.transform.localScale = Vector3.one * sampleContentScale;
+            sampleContentParent = scaledGo.transform;
+        }
+        contentBuilder(sampleContentParent);
+
+        var actionColumnGo = new GameObject("VashiDeystviyaColumn");
+        actionColumnGo.transform.SetParent(page.transform, false);
+        RectTransform actionColumnRt = actionColumnGo.AddComponent<RectTransform>();
+        actionColumnRt.anchorMin = new Vector2(0.5f, 0f);
+        actionColumnRt.anchorMax = new Vector2(1f, 1f);
+        actionColumnRt.offsetMin = Vector2.zero;
+        actionColumnRt.offsetMax = Vector2.zero;
+
+        CreateSplitColumnLabel(actionColumnGo.transform, "ВАШИ ДЕЙСТВИЯ", new Color(0.6f, 1f, 0.6f));
+
+        const float bugHeight = 200f; // matches the ОБРАЗЕЦ side's own bug size exactly
+        // Roughly the vertical center of the page (was 100, up near the
+        // ОБРАЗЕЦ bug's own old height) — per feedback, its resting/start
+        // pose should sit closer to the middle of this column, not high up.
+        const float liveBugRestY = 0f;
+        CreateLiveBugPreview(actionColumnGo.transform, new Vector2(-90f, liveBugRestY), bugHeight,
+            playerRight.GetComponent<GestureInput>(), playerRight.GetComponent<JoystickInput>(),
+            KeyCode.LeftArrow, KeyCode.RightArrow, KeyCode.UpArrow, KeyCode.DownArrow, "LadyBug1.png");
+        leftBug = CreateLiveBugPreview(actionColumnGo.transform, new Vector2(90f, liveBugRestY), bugHeight,
+            playerLeft.GetComponent<GestureInput>(), playerLeft.GetComponent<JoystickInput>(),
+            KeyCode.A, KeyCode.D, KeyCode.W, KeyCode.S, "LadyBug2.png");
+
+        CreateDashedVerticalDivider(page.transform);
+    }
+
+    // One flat, live-reacting bug for a "ВАШИ ДЕЙСТВИЯ" column — same visual
+    // vocabulary as GestureDiagramAnimation's own образец bug (duck squash,
+    // lean shift+tilt, flap rise+frame-swap), driven by LiveBugReactionAnimator
+    // from the given real player's actual input instead of a scripted loop.
+    static GameObject CreateLiveBugPreview(Transform parent, Vector2 anchoredPos, float bugHeight,
+        GestureInput gestureInput, JoystickInput joystickInput, KeyCode left, KeyCode right, KeyCode up, KeyCode down, string spriteFile)
+    {
+        Texture2D bugTex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/" + spriteFile);
+        var bugGo = new GameObject("LiveBug");
+        bugGo.transform.SetParent(parent, false);
+        RawImage bugImage = bugGo.AddComponent<RawImage>();
+        bugImage.texture = bugTex;
+        RectTransform bugRt = bugImage.GetComponent<RectTransform>();
+        bugRt.anchorMin = new Vector2(0.5f, 0.5f);
+        bugRt.anchorMax = new Vector2(0.5f, 0.5f);
+        bugRt.pivot = new Vector2(0.5f, 0.5f);
+        float bugAspect = bugTex != null ? (float)bugTex.width / bugTex.height : 1f;
+        bugRt.sizeDelta = new Vector2(bugHeight * bugAspect, bugHeight);
+        bugRt.anchoredPosition = anchoredPos;
+
+        LiveBugReactionAnimator anim = bugGo.AddComponent<LiveBugReactionAnimator>();
+        SerializedObject so = new SerializedObject(anim);
+        so.FindProperty("gestureInput").objectReferenceValue = gestureInput;
+        so.FindProperty("joystickInput").objectReferenceValue = joystickInput;
+        so.FindProperty("leftKey").intValue = (int)left;
+        so.FindProperty("rightKey").intValue = (int)right;
+        so.FindProperty("upKey").intValue = (int)up;
+        so.FindProperty("downKey").intValue = (int)down;
+        so.FindProperty("bugImage").objectReferenceValue = bugImage;
+        so.FindProperty("bugNormalTexture").objectReferenceValue = bugTex;
+        so.FindProperty("bugAirTexture1").objectReferenceValue = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/" + spriteFile.Replace(".png", "Air1.png"));
+        so.FindProperty("bugAirTexture2").objectReferenceValue = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/" + spriteFile.Replace(".png", "Air2.png"));
+        so.ApplyModifiedPropertiesWithoutUndo();
+
+        return bugGo;
+    }
+
+    static void CreateSplitColumnLabel(Transform parent, string text, Color color)
+    {
+        var go = new GameObject("Label");
+        go.transform.SetParent(parent, false);
+        Text label = go.AddComponent<Text>();
+        label.font = GameFont;
+        label.fontSize = 24;
+        label.fontStyle = FontStyle.Bold;
+        label.alignment = TextAnchor.MiddleCenter;
+        label.color = color;
+        label.text = text;
+        go.AddComponent<Outline>().effectColor = Color.black;
+        RectTransform rt = label.GetComponent<RectTransform>();
+        rt.anchorMin = new Vector2(0.5f, 0.5f);
+        rt.anchorMax = new Vector2(0.5f, 0.5f);
+        rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.sizeDelta = new Vector2(600f, 40f);
+        rt.anchoredPosition = new Vector2(0f, 240f);
+    }
+
+    // Vertical dashed line at the page's own horizontal center, marking the
+    // ОБРАЗЕЦ/ВАШИ ДЕЙСТВИЯ boundary.
+    static void CreateDashedVerticalDivider(Transform parent)
+    {
+        const int dashCount = 14;
+        const float dashHeight = 22f;
+        const float gap = 14f;
+        const float totalHeight = dashCount * dashHeight + (dashCount - 1) * gap;
+        float startY = totalHeight / 2f - dashHeight / 2f;
+
+        for (int i = 0; i < dashCount; i++)
+        {
+            var dashGo = new GameObject("DividerDash");
+            dashGo.transform.SetParent(parent, false);
+            Image dash = dashGo.AddComponent<Image>();
+            dash.color = new Color(1f, 1f, 1f, 0.35f);
+            RectTransform dashRt = dash.GetComponent<RectTransform>();
+            dashRt.anchorMin = new Vector2(0.5f, 0.5f);
+            dashRt.anchorMax = new Vector2(0.5f, 0.5f);
+            dashRt.pivot = new Vector2(0.5f, 0.5f);
+            dashRt.sizeDelta = new Vector2(4f, dashHeight);
+            dashRt.anchoredPosition = new Vector2(0f, startY - i * (dashHeight + gap));
+        }
     }
 
     static void CreatePageCaption(Transform parent, string text)
@@ -3528,84 +3645,86 @@ public static class SceneSetup
     // static version's side action-word label (redundant with the page
     // title above it) and bottom caption entirely, per feedback that
     // both just repeated information already on screen.
-    static GameObject CreateGestureDiagramPage(Transform parent, string title, bool leftGoesUp, bool rightGoesUp, bool isFlap)
+    static (GameObject page, GameObject leftBug) CreateGestureDiagramPage(Transform parent, string title, bool leftGoesUp, bool rightGoesUp, bool isFlap, GameObject playerRight, GameObject playerLeft)
     {
         GameObject page = CreateFillPage(parent, "Page_Gesture_" + title);
 
         CreatePageTitle(page.transform, title, new Color(1f, 0.85f, 0.2f));
 
-        // Bottom half: the sensor pair, side by side — like the physical
-        // control panel on a real arcade cabinet (hand sensors mounted low,
-        // screen above) rather than split left/right. 30% bigger than
-        // CreateControlsPage's small illustrative pair.
-        const float bottomHalfCenterY = -160f;
-        const float glyphSpacing = 150f;
-        const float glyphScale = 1.3f;
-        // ВЛЕВО/ВПРАВО specifically get a static lean on both sensor
-        // strips toward that same side — ПРИСЕСТЬ/МАХАТЬ КРЫЛЬЯМИ have no
-        // side to lean toward, so they stay upright (0).
-        float glyphTilt = 0f;
-        if (!isFlap)
+        CreateTrainingSplit(page, playerRight, playerLeft, 1f, out GameObject leftBug, content =>
         {
-            if (leftGoesUp && !rightGoesUp)
-                glyphTilt = -18f; // ВПРАВО
-            else if (!leftGoesUp && rightGoesUp)
-                glyphTilt = 18f; // ВЛЕВО
-        }
-        RectTransform leftPalm = CreateSensorGlyph(page.transform, new Vector2(-glyphSpacing, bottomHalfCenterY), 0f, glyphScale, glyphTilt);
-        RectTransform rightPalm = CreateSensorGlyph(page.transform, new Vector2(glyphSpacing, bottomHalfCenterY), 0f, glyphScale, glyphTilt);
+            // Bottom half: the sensor pair, side by side — like the physical
+            // control panel on a real arcade cabinet (hand sensors mounted low,
+            // screen above) rather than split left/right. 30% bigger than
+            // CreateControlsPage's small illustrative pair.
+            const float bottomHalfCenterY = -160f;
+            const float glyphSpacing = 150f;
+            const float glyphScale = 1.3f;
+            // ВЛЕВО/ВПРАВО specifically get a static lean on both sensor
+            // strips toward that same side — ПРИСЕСТЬ/МАХАТЬ КРЫЛЬЯМИ have no
+            // side to lean toward, so they stay upright (0).
+            float glyphTilt = 0f;
+            if (!isFlap)
+            {
+                if (leftGoesUp && !rightGoesUp)
+                    glyphTilt = -18f; // ВПРАВО
+                else if (!leftGoesUp && rightGoesUp)
+                    glyphTilt = 18f; // ВЛЕВО
+            }
+            RectTransform leftPalm = CreateSensorGlyph(content, new Vector2(-glyphSpacing, bottomHalfCenterY), 0f, glyphScale, glyphTilt);
+            RectTransform rightPalm = CreateSensorGlyph(content, new Vector2(glyphSpacing, bottomHalfCenterY), 0f, glyphScale, glyphTilt);
 
-        Color arrowColor = new Color(1f, 0.85f, 0.2f);
-        // "↕" (not a plain "↑") for the flap gesture — a fixed "up" arrow
-        // read as a static pose, not the repeated up/down motion the actual
-        // gesture needs; it also bounces in sync with the palm at runtime
-        // (see GestureDiagramAnimation.AnimateFlap) so the *motion* itself
-        // carries the rhythm, not just the glyph.
-        string leftGlyph = isFlap ? "↕" : (leftGoesUp ? "↑" : "↓");
-        string rightGlyph = isFlap ? "↕" : (rightGoesUp ? "↑" : "↓");
-        RectTransform leftArrow = CreateSingleArrow(page.transform, leftGlyph, arrowColor, new Vector2(-glyphSpacing - 80f, bottomHalfCenterY));
-        RectTransform rightArrow = CreateSingleArrow(page.transform, rightGlyph, arrowColor, new Vector2(glyphSpacing + 80f, bottomHalfCenterY));
-        leftArrow.gameObject.SetActive(false);
-        rightArrow.gameObject.SetActive(false);
+            Color arrowColor = new Color(1f, 0.85f, 0.2f);
+            // "↕" (not a plain "↑") for the flap gesture — a fixed "up" arrow
+            // read as a static pose, not the repeated up/down motion the actual
+            // gesture needs; it also bounces in sync with the palm at runtime
+            // (see GestureDiagramAnimation.AnimateFlap) so the *motion* itself
+            // carries the rhythm, not just the glyph.
+            string leftGlyph = isFlap ? "↕" : (leftGoesUp ? "↑" : "↓");
+            string rightGlyph = isFlap ? "↕" : (rightGoesUp ? "↑" : "↓");
+            RectTransform leftArrow = CreateSingleArrow(content, leftGlyph, arrowColor, new Vector2(-glyphSpacing - 80f, bottomHalfCenterY));
+            RectTransform rightArrow = CreateSingleArrow(content, rightGlyph, arrowColor, new Vector2(glyphSpacing + 80f, bottomHalfCenterY));
+            leftArrow.gameObject.SetActive(false);
+            rightArrow.gameObject.SetActive(false);
 
-        // Top half: the ladybug that actually performs the resulting move,
-        // real in-game poses and all (see GestureDiagramAnimation's class
-        // comment) — like the screen above an arcade cabinet's controls,
-        // making the abstract sensor reading concrete ("this hand shape
-        // means THIS happens to you"). Low enough in the top half that even
-        // at the flap animation's peak rise (+bugFlyRise, default 50) the
-        // bug's top edge stays clear of the title above it.
-        const float topHalfCenterY = 100f;
-        const float bugHeight = 200f;
-        Texture2D bugTex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/LadyBug1.png");
-        var bugGo = new GameObject("Bug");
-        bugGo.transform.SetParent(page.transform, false);
-        RawImage bugImage = bugGo.AddComponent<RawImage>();
-        bugImage.texture = bugTex;
-        RectTransform bugRt = bugImage.GetComponent<RectTransform>();
-        bugRt.anchorMin = new Vector2(0.5f, 0.5f);
-        bugRt.anchorMax = new Vector2(0.5f, 0.5f);
-        bugRt.pivot = new Vector2(0.5f, 0.5f);
-        float bugAspect = bugTex != null ? (float)bugTex.width / bugTex.height : 1f;
-        bugRt.sizeDelta = new Vector2(bugHeight * bugAspect, bugHeight);
-        bugRt.anchoredPosition = new Vector2(0f, topHalfCenterY);
+            // Top half: the ladybug that actually performs the resulting move,
+            // real in-game poses and all (see GestureDiagramAnimation's class
+            // comment) — like the screen above an arcade cabinet's controls,
+            // making the abstract sensor reading concrete ("this hand shape
+            // means THIS happens to you"). Lowered further (was 100) — per
+            // feedback it was still touching the page's own title above it.
+            const float topHalfCenterY = 60f;
+            const float bugHeight = 200f;
+            Texture2D bugTex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/LadyBug1.png");
+            var bugGo = new GameObject("Bug");
+            bugGo.transform.SetParent(content, false);
+            RawImage bugImage = bugGo.AddComponent<RawImage>();
+            bugImage.texture = bugTex;
+            RectTransform bugRt = bugImage.GetComponent<RectTransform>();
+            bugRt.anchorMin = new Vector2(0.5f, 0.5f);
+            bugRt.anchorMax = new Vector2(0.5f, 0.5f);
+            bugRt.pivot = new Vector2(0.5f, 0.5f);
+            float bugAspect = bugTex != null ? (float)bugTex.width / bugTex.height : 1f;
+            bugRt.sizeDelta = new Vector2(bugHeight * bugAspect, bugHeight);
+            bugRt.anchoredPosition = new Vector2(0f, topHalfCenterY);
 
-        GestureDiagramAnimation anim = page.AddComponent<GestureDiagramAnimation>();
-        SerializedObject so = new SerializedObject(anim);
-        so.FindProperty("leftPalm").objectReferenceValue = leftPalm;
-        so.FindProperty("rightPalm").objectReferenceValue = rightPalm;
-        so.FindProperty("leftArrow").objectReferenceValue = leftArrow;
-        so.FindProperty("rightArrow").objectReferenceValue = rightArrow;
-        so.FindProperty("leftTargetOffset").floatValue = leftGoesUp ? 50f : -50f;
-        so.FindProperty("rightTargetOffset").floatValue = rightGoesUp ? 50f : -50f;
-        so.FindProperty("isFlap").boolValue = isFlap;
-        so.FindProperty("bugImage").objectReferenceValue = bugImage;
-        so.FindProperty("bugNormalTexture").objectReferenceValue = bugTex;
-        so.FindProperty("bugAirTexture1").objectReferenceValue = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/LadyBug1Air1.png");
-        so.FindProperty("bugAirTexture2").objectReferenceValue = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/LadyBug1Air2.png");
-        so.ApplyModifiedPropertiesWithoutUndo();
+            GestureDiagramAnimation anim = page.AddComponent<GestureDiagramAnimation>();
+            SerializedObject so = new SerializedObject(anim);
+            so.FindProperty("leftPalm").objectReferenceValue = leftPalm;
+            so.FindProperty("rightPalm").objectReferenceValue = rightPalm;
+            so.FindProperty("leftArrow").objectReferenceValue = leftArrow;
+            so.FindProperty("rightArrow").objectReferenceValue = rightArrow;
+            so.FindProperty("leftTargetOffset").floatValue = leftGoesUp ? 50f : -50f;
+            so.FindProperty("rightTargetOffset").floatValue = rightGoesUp ? 50f : -50f;
+            so.FindProperty("isFlap").boolValue = isFlap;
+            so.FindProperty("bugImage").objectReferenceValue = bugImage;
+            so.FindProperty("bugNormalTexture").objectReferenceValue = bugTex;
+            so.FindProperty("bugAirTexture1").objectReferenceValue = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/LadyBug1Air1.png");
+            so.FindProperty("bugAirTexture2").objectReferenceValue = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/LadyBug1Air2.png");
+            so.ApplyModifiedPropertiesWithoutUndo();
+        });
 
-        return page;
+        return (page, leftBug);
     }
 
     // The АРКА trick, animated rather than a static diagram: one ladybug
@@ -3614,7 +3733,7 @@ public static class SceneSetup
     // them, then a "trick complete" line flashes. No caption/static
     // per-icon labels — the animation itself carries the explanation.
     // See ArchTrickAnimation.cs for the actual playback.
-    static GameObject CreateArchTrickPage(Transform parent)
+    static (GameObject page, GameObject leftBug) CreateArchTrickPage(Transform parent, GameObject playerRight, GameObject playerLeft)
     {
         GameObject page = CreateFillPage(parent, "Page_Trick_ArchAnim");
         // Clips the arch to the page bounds once it grows past archMid* —
@@ -3623,58 +3742,62 @@ public static class SceneSetup
         page.AddComponent<RectMask2D>();
         CreatePageTitle(page.transform, "ТРЮК: АРКА", new Color(0.7f, 0.4f, 1f));
 
-        const float bugHeight = 150f;
-        const float bugY = 130f;
-        const float arrowXOffset = 210f;
+        GameObject leftBug;
+        CreateTrainingSplit(page, playerRight, playerLeft, 1f, out leftBug, content =>
+        {
+            const float bugHeight = 150f;
+            const float bugY = 130f;
+            const float arrowXOffset = 210f;
 
-        RectTransform bottomBug = CreateTrickBugIcon(page.transform, "LadyBug1.png", new Vector2(0f, -bugY), bugHeight);
-        RectTransform topBug = CreateTrickBugIcon(page.transform, "LadyBug2.png", new Vector2(0f, bugY), bugHeight);
+            RectTransform bottomBug = CreateTrickBugIcon(content, "LadyBug1.png", new Vector2(0f, -bugY), bugHeight);
+            RectTransform topBug = CreateTrickBugIcon(content, "LadyBug2.png", new Vector2(0f, bugY), bugHeight);
 
-        GameObject downArrows = CreateArrowPair(page.transform, "DownArrows", "↓", new Color(1f, 0.85f, 0.2f), -bugY, arrowXOffset);
-        GameObject upArrows = CreateArrowPair(page.transform, "UpArrows", "↑", new Color(1f, 0.85f, 0.2f), bugY, arrowXOffset);
+            GameObject downArrows = CreateArrowPair(content, "DownArrows", "↓", new Color(1f, 0.85f, 0.2f), -bugY, arrowXOffset);
+            GameObject upArrows = CreateArrowPair(content, "UpArrows", "↑", new Color(1f, 0.85f, 0.2f), bugY, arrowXOffset);
 
-        Texture2D archTex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/SmallArch.png");
-        var archGo = new GameObject("Arch");
-        archGo.transform.SetParent(page.transform, false);
-        RawImage archImg = archGo.AddComponent<RawImage>();
-        archImg.texture = archTex;
-        RectTransform archRt = archImg.GetComponent<RectTransform>();
-        archRt.anchorMin = new Vector2(0.5f, 0.5f);
-        archRt.anchorMax = new Vector2(0.5f, 0.5f);
-        archRt.pivot = new Vector2(0.5f, 0.5f);
-        archRt.anchoredPosition = Vector2.zero;
-        archGo.SetActive(false);
+            Texture2D archTex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/SmallArch.png");
+            var archGo = new GameObject("Arch");
+            archGo.transform.SetParent(content, false);
+            RawImage archImg = archGo.AddComponent<RawImage>();
+            archImg.texture = archTex;
+            RectTransform archRt = archImg.GetComponent<RectTransform>();
+            archRt.anchorMin = new Vector2(0.5f, 0.5f);
+            archRt.anchorMax = new Vector2(0.5f, 0.5f);
+            archRt.pivot = new Vector2(0.5f, 0.5f);
+            archRt.anchoredPosition = Vector2.zero;
+            archGo.SetActive(false);
 
-        var successGo = new GameObject("SuccessText");
-        successGo.transform.SetParent(page.transform, false);
-        Text successText = successGo.AddComponent<Text>();
-        successText.font = GameFont;
-        successText.fontSize = 44;
-        successText.fontStyle = FontStyle.Bold;
-        successText.alignment = TextAnchor.MiddleCenter;
-        successText.color = new Color(0.4f, 1f, 0.5f);
-        successText.text = "ТРЮК ВЫПОЛНЕН +1";
-        successGo.AddComponent<Outline>().effectColor = Color.black;
-        RectTransform successRt = successText.GetComponent<RectTransform>();
-        successRt.anchorMin = new Vector2(0.5f, 0.5f);
-        successRt.anchorMax = new Vector2(0.5f, 0.5f);
-        successRt.pivot = new Vector2(0.5f, 0.5f);
-        successRt.sizeDelta = new Vector2(700f, 80f);
-        successRt.anchoredPosition = new Vector2(0f, -300f);
-        successGo.SetActive(false);
+            var successGo = new GameObject("SuccessText");
+            successGo.transform.SetParent(content, false);
+            Text successText = successGo.AddComponent<Text>();
+            successText.font = GameFont;
+            successText.fontSize = 44;
+            successText.fontStyle = FontStyle.Bold;
+            successText.alignment = TextAnchor.MiddleCenter;
+            successText.color = new Color(0.4f, 1f, 0.5f);
+            successText.text = "ТРЮК ВЫПОЛНЕН +1";
+            successGo.AddComponent<Outline>().effectColor = Color.black;
+            RectTransform successRt = successText.GetComponent<RectTransform>();
+            successRt.anchorMin = new Vector2(0.5f, 0.5f);
+            successRt.anchorMax = new Vector2(0.5f, 0.5f);
+            successRt.pivot = new Vector2(0.5f, 0.5f);
+            successRt.sizeDelta = new Vector2(700f, 80f);
+            successRt.anchoredPosition = new Vector2(0f, -300f);
+            successGo.SetActive(false);
 
-        ArchTrickAnimation anim = page.AddComponent<ArchTrickAnimation>();
-        SerializedObject so = new SerializedObject(anim);
-        so.FindProperty("bottomBug").objectReferenceValue = bottomBug;
-        so.FindProperty("topBug").objectReferenceValue = topBug;
-        so.FindProperty("downArrows").objectReferenceValue = downArrows;
-        so.FindProperty("upArrows").objectReferenceValue = upArrows;
-        so.FindProperty("arch").objectReferenceValue = archRt;
-        so.FindProperty("successText").objectReferenceValue = successGo;
-        so.FindProperty("topBugAirTexture").objectReferenceValue = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/LadyBug2Air1.png");
-        so.ApplyModifiedPropertiesWithoutUndo();
+            ArchTrickAnimation anim = page.AddComponent<ArchTrickAnimation>();
+            SerializedObject so = new SerializedObject(anim);
+            so.FindProperty("bottomBug").objectReferenceValue = bottomBug;
+            so.FindProperty("topBug").objectReferenceValue = topBug;
+            so.FindProperty("downArrows").objectReferenceValue = downArrows;
+            so.FindProperty("upArrows").objectReferenceValue = upArrows;
+            so.FindProperty("arch").objectReferenceValue = archRt;
+            so.FindProperty("successText").objectReferenceValue = successGo;
+            so.FindProperty("topBugAirTexture").objectReferenceValue = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/LadyBug2Air1.png");
+            so.ApplyModifiedPropertiesWithoutUndo();
+        });
 
-        return page;
+        return (page, leftBug);
     }
 
     // Only two tricks actually exist in the game (see PlayerController's
@@ -3683,81 +3806,87 @@ public static class SceneSetup
     // КОЛЬЦО's animated instruction page, same slide-by-slide treatment as
     // CreateArchTrickPage/ArchTrickAnimation replaces the old static
     // two-icon diagram with.
-    static GameObject CreateRingTrickPage(Transform parent)
+    static (GameObject page, GameObject leftBug) CreateRingTrickPage(Transform parent, GameObject playerRight, GameObject playerLeft)
     {
         GameObject page = CreateFillPage(parent, "Page_Trick_RingAnim");
         CreatePageTitle(page.transform, "ТРЮК: КОЛЬЦО", new Color(0.7f, 0.4f, 1f));
 
-        const float bugHeight = 150f;
-        const float bugX = 220f;
-        const float arrowY = 110f;
-
-        // Big dashed oval behind the bugs — roughly the shape of the whole
-        // rise/cross/come-down route, not a literal trace of it.
-        const float ovalYRadius = arrowY * 1.4f;
-        System.Func<float, Vector2> oval = t =>
+        GameObject leftBug;
+        // Oval route reaches ±352 wide natively (bugX*1.6) — well past half
+        // a page — shrunk down (0.72) to actually fit next to ВАШИ ДЕЙСТВИЯ.
+        CreateTrainingSplit(page, playerRight, playerLeft, 0.72f, out leftBug, content =>
         {
-            float angle = t * Mathf.PI * 2f;
-            return new Vector2(Mathf.Cos(angle) * bugX * 1.6f, Mathf.Sin(angle) * ovalYRadius);
-        };
-        // No arrowhead — a plain closed oval, not a directional cue (see
-        // CreateDashedRouteBackdrop's own showArrowheads comment).
-        CreateDashedRouteBackdrop(page.transform, null, 1400f, false, oval);
+            const float bugHeight = 150f;
+            const float bugX = 220f;
+            const float arrowY = 110f;
 
-        // Both bugs start right at the oval's own bottom point, not y=0 —
-        // the whole rise/cross/come-down animation is built relative to
-        // wherever these two start (RingTrickAnimation.Awake reads their
-        // position directly), so this lines the entire loop up with the
-        // route drawn behind it instead of starting mid-air relative to it.
-        float startY = -ovalYRadius;
-        RectTransform airBug = CreateTrickBugIcon(page.transform, "LadyBug1.png", new Vector2(-bugX, startY), bugHeight);
-        RectTransform groundBug = CreateTrickBugIcon(page.transform, "LadyBug2.png", new Vector2(bugX, startY), bugHeight);
+            // Big dashed oval behind the bugs — roughly the shape of the whole
+            // rise/cross/come-down route, not a literal trace of it.
+            const float ovalYRadius = arrowY * 1.4f;
+            System.Func<float, Vector2> oval = t =>
+            {
+                float angle = t * Mathf.PI * 2f;
+                return new Vector2(Mathf.Cos(angle) * bugX * 1.6f, Mathf.Sin(angle) * ovalYRadius);
+            };
+            // No arrowhead — a plain closed oval, not a directional cue (see
+            // CreateDashedRouteBackdrop's own showArrowheads comment).
+            CreateDashedRouteBackdrop(content, null, 1400f, false, oval);
 
-        // Single reusable arrow per bug — glyph and position are swapped
-        // per beat by RingTrickAnimation itself (up, then sideways in each
-        // bug's own direction, then down), not a fixed pair shown throughout.
-        Color arrowColor = new Color(1f, 0.85f, 0.2f);
-        RectTransform airArrow = CreateSingleArrow(page.transform, "↑", arrowColor, new Vector2(-bugX, arrowY));
-        RectTransform groundArrow = CreateSingleArrow(page.transform, "←", arrowColor, new Vector2(bugX, -arrowY));
-        airArrow.gameObject.SetActive(false);
-        groundArrow.gameObject.SetActive(false);
+            // Both bugs start right at the oval's own bottom point, not y=0 —
+            // the whole rise/cross/come-down animation is built relative to
+            // wherever these two start (RingTrickAnimation.Awake reads their
+            // position directly), so this lines the entire loop up with the
+            // route drawn behind it instead of starting mid-air relative to it.
+            float startY = -ovalYRadius;
+            RectTransform airBug = CreateTrickBugIcon(content, "LadyBug1.png", new Vector2(-bugX, startY), bugHeight);
+            RectTransform groundBug = CreateTrickBugIcon(content, "LadyBug2.png", new Vector2(bugX, startY), bugHeight);
 
-        var successGo = new GameObject("SuccessText");
-        successGo.transform.SetParent(page.transform, false);
-        Text successText = successGo.AddComponent<Text>();
-        successText.font = GameFont;
-        successText.fontSize = 44;
-        successText.fontStyle = FontStyle.Bold;
-        successText.alignment = TextAnchor.MiddleCenter;
-        successText.color = new Color(0.4f, 1f, 0.5f);
-        successText.text = "ТРЮК ВЫПОЛНЕН +1";
-        successGo.AddComponent<Outline>().effectColor = Color.black;
-        RectTransform successRt = successText.GetComponent<RectTransform>();
-        successRt.anchorMin = new Vector2(0.5f, 0.5f);
-        successRt.anchorMax = new Vector2(0.5f, 0.5f);
-        successRt.pivot = new Vector2(0.5f, 0.5f);
-        successRt.sizeDelta = new Vector2(700f, 80f);
-        successRt.anchoredPosition = new Vector2(0f, -300f);
-        successGo.SetActive(false);
+            // Single reusable arrow per bug — glyph and position are swapped
+            // per beat by RingTrickAnimation itself (up, then sideways in each
+            // bug's own direction, then down), not a fixed pair shown throughout.
+            Color arrowColor = new Color(1f, 0.85f, 0.2f);
+            RectTransform airArrow = CreateSingleArrow(content, "↑", arrowColor, new Vector2(-bugX, arrowY));
+            RectTransform groundArrow = CreateSingleArrow(content, "←", arrowColor, new Vector2(bugX, -arrowY));
+            airArrow.gameObject.SetActive(false);
+            groundArrow.gameObject.SetActive(false);
 
-        RingTrickAnimation anim = page.AddComponent<RingTrickAnimation>();
-        SerializedObject ringSo = new SerializedObject(anim);
-        ringSo.FindProperty("airBug").objectReferenceValue = airBug;
-        ringSo.FindProperty("groundBug").objectReferenceValue = groundBug;
-        ringSo.FindProperty("airArrow").objectReferenceValue = airArrow;
-        ringSo.FindProperty("groundArrow").objectReferenceValue = groundArrow;
-        ringSo.FindProperty("arrowOffset").vector2Value = new Vector2(0f, 115f);
-        // Rise (then matching come-down) now spans the oval's full bottom-
-        // to-top height, not the script's small default — both bugs start
-        // at the oval's bottom point (startY above), so this lines the
-        // rise up with the route drawn behind it instead of stopping well
-        // short of the top.
-        ringSo.FindProperty("arcHeight").floatValue = 2f * ovalYRadius;
-        ringSo.FindProperty("successText").objectReferenceValue = successGo;
-        ringSo.FindProperty("airBugAirTexture").objectReferenceValue = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/LadyBug1Air1.png");
-        ringSo.ApplyModifiedPropertiesWithoutUndo();
+            var successGo = new GameObject("SuccessText");
+            successGo.transform.SetParent(content, false);
+            Text successText = successGo.AddComponent<Text>();
+            successText.font = GameFont;
+            successText.fontSize = 44;
+            successText.fontStyle = FontStyle.Bold;
+            successText.alignment = TextAnchor.MiddleCenter;
+            successText.color = new Color(0.4f, 1f, 0.5f);
+            successText.text = "ТРЮК ВЫПОЛНЕН +1";
+            successGo.AddComponent<Outline>().effectColor = Color.black;
+            RectTransform successRt = successText.GetComponent<RectTransform>();
+            successRt.anchorMin = new Vector2(0.5f, 0.5f);
+            successRt.anchorMax = new Vector2(0.5f, 0.5f);
+            successRt.pivot = new Vector2(0.5f, 0.5f);
+            successRt.sizeDelta = new Vector2(700f, 80f);
+            successRt.anchoredPosition = new Vector2(0f, -300f);
+            successGo.SetActive(false);
 
-        return page;
+            RingTrickAnimation anim = page.AddComponent<RingTrickAnimation>();
+            SerializedObject ringSo = new SerializedObject(anim);
+            ringSo.FindProperty("airBug").objectReferenceValue = airBug;
+            ringSo.FindProperty("groundBug").objectReferenceValue = groundBug;
+            ringSo.FindProperty("airArrow").objectReferenceValue = airArrow;
+            ringSo.FindProperty("groundArrow").objectReferenceValue = groundArrow;
+            ringSo.FindProperty("arrowOffset").vector2Value = new Vector2(0f, 115f);
+            // Rise (then matching come-down) now spans the oval's full bottom-
+            // to-top height, not the script's small default — both bugs start
+            // at the oval's bottom point (startY above), so this lines the
+            // rise up with the route drawn behind it instead of stopping well
+            // short of the top.
+            ringSo.FindProperty("arcHeight").floatValue = 2f * ovalYRadius;
+            ringSo.FindProperty("successText").objectReferenceValue = successGo;
+            ringSo.FindProperty("airBugAirTexture").objectReferenceValue = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/LadyBug1Air1.png");
+            ringSo.ApplyModifiedPropertiesWithoutUndo();
+        });
+
+        return (page, leftBug);
     }
 
     // Shared page builder for the 5 newer multi-step tricks (see
@@ -5081,33 +5210,6 @@ public static class SceneSetup
         return tex;
     }
 
-    // Plain filled circle, transparent outside it — the small round "hub"
-    // badge behind the gear digit (and its empty counterpart on the right
-    // corner) sits on, per feedback that the gear+speed indicator should
-    // read as a standalone dial (circle + arc of ticks) floating in the
-    // fan's remaining middle space, not another bounded pizza-slice wedge
-    // with its own seamed edges like ДИСТАНЦИЯ/ВРЕМЯ/ОЧКИ/ТРЮКИ.
-    static Texture2D CreateCircleTexture(int size, Color fill)
-    {
-        var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
-        tex.filterMode = FilterMode.Bilinear;
-        float radius = (size - 1) / 2f;
-        Vector2 center = new Vector2(radius, radius);
-        Color clear = new Color(0f, 0f, 0f, 0f);
-
-        for (int y = 0; y < size; y++)
-        {
-            for (int x = 0; x < size; x++)
-            {
-                float dist = Vector2.Distance(new Vector2(x, y), center);
-                tex.SetPixel(x, y, dist <= radius ? fill : clear);
-            }
-        }
-
-        tex.Apply();
-        return tex;
-    }
-
     // A single 90°-wide corner fan — apex at the left edge (opensRight) or
     // right edge (!opensRight) — covering both of a corner's real wedge
     // slices (ДИСТАНЦИЯ+ВРЕМЯ or ОЧКИ+ТРЮКИ) in one shape, split into its
@@ -5121,33 +5223,57 @@ public static class SceneSetup
     // and SpeedIndicator's green-red tick fill are the only things that
     // stay programmatic on top, same as before, sitting over the flat
     // interior fill.
-    static Texture2D CreateWedgeTexture(int size, float angleWidthDeg, bool opensRight)
+    // withBorder/withDivider default to the plain corner-sector look (no
+    // border stripe — removed everywhere per feedback that it made the
+    // sectors read as too busy — but with the mid-sector divider line,
+    // used to mark the seam between the 2 real content slices sharing one
+    // panel). The central gear-hub badge is the one shape that still wants
+    // a border (see its own call site) but not a divider (it's a single
+    // unified pie, not 2 slices sharing one texture).
+    static Texture2D CreateWedgeTexture(int width, float angleWidthDeg, bool opensRight, bool withBorder = false, bool withDivider = true)
     {
-        var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+        float halfAngle = angleWidthDeg * 0.5f * Mathf.Deg2Rad;
+        // Taller than it is wide, not square — a wide sector (e.g. this
+        // panel's full 90°) reaches much further vertically from the apex
+        // at its outer edge than a square canvas has room for, which used
+        // to clip the sector's top/bottom corners off the canvas entirely
+        // instead of drawing the full pie slice.
+        int height = Mathf.CeilToInt(2f * (width - 1) * Mathf.Sin(halfAngle)) + 4;
+
+        var tex = new Texture2D(width, height, TextureFormat.RGBA32, false);
         tex.filterMode = FilterMode.Bilinear;
         tex.wrapMode = TextureWrapMode.Clamp;
 
-        float halfAngle = angleWidthDeg * 0.5f * Mathf.Deg2Rad;
-        const float borderAngularWidth = 0.14f; // radians of angular margin (from each edge) that gets the border color
-        float borderRadialWidth = size * 0.09f; // pixels in from the outer arc that get the same border color
         const float dividerHalfWidth = 0.012f; // radians either side of the sector midpoint that gets the thin divider line
-        float apexX = opensRight ? 0f : size - 1;
-        float apexY = (size - 1) / 2f;
+        // A constant ANGULAR margin here used to mean the border band got
+        // physically wider (in pixels) further from the apex — and, more to
+        // the point, it meant the fill's own inner boundary sat at a
+        // narrower half-angle than the sector's true edge (e.g. 37° instead
+        // of 45°), so the fill's own "sides" read as tilted relative to the
+        // sector's real (screen-aligned) sides instead of running parallel
+        // to them. Measuring perpendicular pixel distance to the nearest
+        // straight edge instead (distToEdge below) gives a constant-width
+        // stroke whose inner edge is a true parallel offset of the outer
+        // one, same as any normal border/stroke.
+        float borderWidthPx = width * 0.07f;
+        float borderRadialWidth = width * 0.09f; // pixels in from the outer arc that get the same border color
+        float apexX = opensRight ? 0f : width - 1;
+        float apexY = (height - 1) / 2f;
 
         Color clear = new Color(0f, 0f, 0f, 0f);
         Color fill = new Color(0.08f, 0.14f, 0.18f, 0.55f);
-        Color border = new Color(1f, 0.75f, 0.2f, 0.9f);
         Color divider = new Color(1f, 1f, 1f, 0.4f);
+        Color border = new Color(1f, 0.75f, 0.2f, 0.9f);
 
-        for (int y = 0; y < size; y++)
+        for (int y = 0; y < height; y++)
         {
-            for (int x = 0; x < size; x++)
+            for (int x = 0; x < width; x++)
             {
                 float dx = opensRight ? (x - apexX) : (apexX - x);
                 float dy = y - apexY;
                 float dist = Mathf.Sqrt(dx * dx + dy * dy);
 
-                if (dx < 0f || dist > size - 1)
+                if (dx < 0f || dist > width - 1)
                 {
                     tex.SetPixel(x, y, clear);
                     continue;
@@ -5159,17 +5285,21 @@ public static class SceneSetup
                 {
                     tex.SetPixel(x, y, clear);
                 }
-                else if (absAngle > halfAngle - borderAngularWidth || dist > size - 1 - borderRadialWidth)
-                {
-                    tex.SetPixel(x, y, border);
-                }
-                else if (absAngle < dividerHalfWidth && dist > size * 0.12f)
-                {
-                    tex.SetPixel(x, y, divider);
-                }
                 else
                 {
-                    tex.SetPixel(x, y, fill);
+                    float distToEdge = dist * Mathf.Sin(halfAngle - absAngle);
+                    if (withBorder && (distToEdge < borderWidthPx || dist > width - 1 - borderRadialWidth))
+                    {
+                        tex.SetPixel(x, y, border);
+                    }
+                    else if (withDivider && absAngle < dividerHalfWidth && dist > width * 0.12f)
+                    {
+                        tex.SetPixel(x, y, divider);
+                    }
+                    else
+                    {
+                        tex.SetPixel(x, y, fill);
+                    }
                 }
             }
         }
@@ -5185,13 +5315,21 @@ public static class SceneSetup
     // now the apex itself (0,0.5) or (1,0.5) instead of the shape's center,
     // since sizeDelta now spans the whole wedge (apex to outer edge)
     // rather than a small floating box.
-    static void PositionWedgePanel(RectTransform rt, bool rightCorner, float angleDeg, float radius)
+    // heightScale stretches sizeDelta's height relative to its width — 1
+    // (square) for the many backgroundless anchor-only panels here (their
+    // sizeDelta doesn't actually render anything, content positions itself
+    // via CreateWedgeContent's own anchoredPosition regardless), but the two
+    // real wedge-texture panels pass their texture's actual height/width
+    // aspect so the non-square canvas from CreateWedgeTexture (tall enough
+    // for a full 90° sector, see its own comment) isn't squashed back into
+    // a square display rect.
+    static void PositionWedgePanel(RectTransform rt, bool rightCorner, float angleDeg, float radius, float heightScale = 1f)
     {
         rt.anchorMin = new Vector2(rightCorner ? 1f : 0f, 1f);
         rt.anchorMax = new Vector2(rightCorner ? 1f : 0f, 1f);
         rt.pivot = new Vector2(rightCorner ? 1f : 0f, 0.5f);
-        rt.sizeDelta = new Vector2(radius, radius);
-        rt.anchoredPosition = new Vector2(rightCorner ? -30f : 30f, -30f); // 20 * 1.5 — corner inset scaled up along with the rest of the fan
+        rt.sizeDelta = new Vector2(radius, radius * heightScale);
+        rt.anchoredPosition = new Vector2(rightCorner ? -35f : 35f, -35f); // 30 * 1.15 — corner inset scaled up along with the rest of the fan
         // Sign flips with the corner — the wedge texture's own "opens
         // toward screen center" direction mirrors between corners, so the
         // SAME physical sweep (top edge -> down the side edge as angleDeg
@@ -5235,6 +5373,22 @@ public static class SceneSetup
         return rt;
     }
 
+    // Nudges a CreateWedgeContent result by a small delta in real screen
+    // directions (e.g. "a bit lower/righter") regardless of the wedge
+    // panel's own tilt — anchoredPosition is measured in the panel's own
+    // rotated local space, so a plain += on it would drift off at whatever
+    // angle that panel happens to be tilted to instead of moving straight
+    // down/right on screen. Rotates screenDelta back into the panel's local
+    // space first (the inverse of the rotation CreateWedgeContent's own
+    // position math implicitly gets from being that panel's child).
+    static void NudgeContentScreenSpace(RectTransform contentRt, Transform wedgeParent, Vector2 screenDelta)
+    {
+        RectTransform parentRt = wedgeParent.GetComponent<RectTransform>();
+        float parentZ = parentRt != null ? parentRt.localEulerAngles.z : 0f;
+        Vector3 localDelta = Quaternion.Euler(0f, 0f, -parentZ) * (Vector3)screenDelta;
+        contentRt.anchoredPosition += (Vector2)localDelta;
+    }
+
     // A row of small square dots along a shared radius (via CreateWedgeContent),
     // evenly spread across ±halfSpanDeg from the hub's own centerline — the
     // constant radius is what makes them read as a curved arc/dial rather
@@ -5247,7 +5401,10 @@ public static class SceneSetup
         for (int i = 0; i < count; i++)
         {
             float angle = count > 1 ? Mathf.Lerp(-halfSpanDeg, halfSpanDeg, (float)i / (count - 1)) : 0f;
-            RectTransform tickContentRt = CreateWedgeContent(wedgeParent, rightCorner, angle, radius, 33f, 33f); // 22 * 1.5
+            // Thin radial bar, not a square dot — narrow width (was 33x33)
+            // with an extra rotation below so its long edge always points
+            // toward the wedge's own apex, like a clock's minute marks.
+            RectTransform tickContentRt = CreateWedgeContent(wedgeParent, rightCorner, angle, radius, 10f, 34f);
             var tickGo = new GameObject("Tick" + i);
             tickGo.transform.SetParent(tickContentRt, false);
             Image tick = tickGo.AddComponent<Image>();
@@ -5257,9 +5414,69 @@ public static class SceneSetup
             tickRt.anchorMax = Vector2.one;
             tickRt.offsetMin = Vector2.zero;
             tickRt.offsetMax = Vector2.zero;
+
+            // tickContentRt already counter-rotates against the wedge's own
+            // tilt (see CreateWedgeContent) so content sits screen-upright
+            // by default — this adds an extra rotation on top of that so
+            // each tick instead points radially, parallel to the actual
+            // on-screen ray from the wedge's apex to itself. That ray's
+            // local direction (sign*cos(rad), sin(rad)) still needs the
+            // wedge panel's own on-screen rotation applied back on top of
+            // it — tickContentRt's position offset gets that rotation for
+            // free as a side effect of being the wedge panel's child (see
+            // CreateWedgeContent), but a tick's own ROTATION doesn't
+            // inherit it the same way, since its immediate parent
+            // (tickContentRt) sits at net-zero screen rotation.
+            float rad = angle * Mathf.Deg2Rad;
+            float sign = rightCorner ? -1f : 1f;
+            Vector3 localDir = new Vector3(sign * Mathf.Cos(rad), Mathf.Sin(rad), 0f);
+            RectTransform wedgeParentRt = wedgeParent.GetComponent<RectTransform>();
+            float parentZ = wedgeParentRt != null ? wedgeParentRt.localEulerAngles.z : 0f;
+            Vector3 screenDir = Quaternion.Euler(0f, 0f, parentZ) * localDir;
+            float screenAngleDeg = Mathf.Atan2(screenDir.y, screenDir.x) * Mathf.Rad2Deg;
+            tickRt.localEulerAngles = new Vector3(0f, 0f, screenAngleDeg - 90f);
+
             ticks[i] = tick;
         }
         return ticks;
+    }
+
+    // A thin curved guide line bracketing one side (inner or outer radius)
+    // of the speed tick row — approximated as many short, closely-packed
+    // segments, each individually rotated tangent to the circle at that
+    // point (same per-segment rotation trick CreateTickRing uses, just
+    // tangent instead of radial), so it reads as a smooth arc rather than
+    // straight facets.
+    static void CreateArcGuide(Transform wedgeParent, bool rightCorner, float radius, float halfSpanDeg, Color color)
+    {
+        const int segments = 40;
+        const float segLength = 10f;
+        const float thickness = 3f;
+
+        RectTransform wedgeParentRt = wedgeParent.GetComponent<RectTransform>();
+        float parentZ = wedgeParentRt != null ? wedgeParentRt.localEulerAngles.z : 0f;
+        float sign = rightCorner ? -1f : 1f;
+
+        for (int i = 0; i < segments; i++)
+        {
+            float angle = segments > 1 ? Mathf.Lerp(-halfSpanDeg, halfSpanDeg, (float)i / (segments - 1)) : 0f;
+            RectTransform segContentRt = CreateWedgeContent(wedgeParent, rightCorner, angle, radius, thickness, segLength);
+            var segGo = new GameObject("ArcSeg" + i);
+            segGo.transform.SetParent(segContentRt, false);
+            Image seg = segGo.AddComponent<Image>();
+            seg.color = color;
+            RectTransform segRt = seg.GetComponent<RectTransform>();
+            segRt.anchorMin = Vector2.zero;
+            segRt.anchorMax = Vector2.one;
+            segRt.offsetMin = Vector2.zero;
+            segRt.offsetMax = Vector2.zero;
+
+            float rad = angle * Mathf.Deg2Rad;
+            Vector3 localDir = new Vector3(sign * Mathf.Cos(rad), Mathf.Sin(rad), 0f);
+            Vector3 screenDir = Quaternion.Euler(0f, 0f, parentZ) * localDir;
+            float screenAngleDeg = Mathf.Atan2(screenDir.y, screenDir.x) * Mathf.Rad2Deg;
+            segRt.localEulerAngles = new Vector3(0f, 0f, screenAngleDeg); // tangent — no -90 offset, unlike the radially-aligned ticks
+        }
     }
 
     // Solid white right-pointing triangle (flat edge on the left, point on

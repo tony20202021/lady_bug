@@ -241,6 +241,18 @@ public class IntroSequence : MonoBehaviour
     // of just vanishing on the spot, then hides for good.
     private IEnumerator FadeOutAndFinish()
     {
+        // Resets the carousel to page 0 before the fade starts, not just in
+        // Finish() at the end — this canvas sits ABOVE the start menu and
+        // fades to transparent over finishFadeOutDuration, so the menu (and
+        // whatever carousel page it silently landed on while hidden) is
+        // visible, blending in, for that whole fade — not just for one
+        // stray frame at the very end. Finish()'s own call to this is now
+        // mostly a no-op for this path, but still needed for the
+        // no-flowers fallback in RunIntro(), which skips straight to
+        // Finish() without ever fading.
+        if (startScreen != null)
+            startScreen.OnRevealed();
+
         if (canvasGroup != null)
         {
             float t = 0f;

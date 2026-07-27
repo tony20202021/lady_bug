@@ -693,6 +693,14 @@ public class WinSequence : MonoBehaviour
             newRecordAnnounceText.SetActive(false);
         }
 
+        // statsBackdrop is the announce text's own background (see its
+        // sortingOrder comment) so it has to stay up through that — but it
+        // has no business floating behind the webcam countdown either, same
+        // reasoning as winTextRoot just above in RunSequence. Caller's own
+        // finally block still hides it again afterward, harmlessly.
+        if (statsBackdrop != null)
+            statsBackdrop.SetActive(false);
+
         string savedPath = null;
         yield return StartCoroutine(PlayerPhotoCapture.Instance.CaptureForRecord(message, p => savedPath = p));
         if (savedPath != null && HighScoreManager.Instance != null)

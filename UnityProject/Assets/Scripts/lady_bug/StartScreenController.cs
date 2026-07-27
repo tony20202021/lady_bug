@@ -54,10 +54,16 @@ public class StartScreenController : MonoBehaviour
     [SerializeField] private GameObject trickCarouselCanvasRoot;
     [SerializeField] private GameObject[] trickCarouselPages;
     [SerializeField] private GameObject trickCarouselBackground;
-    [SerializeField] private Text trickCarouselExitCountdownText;
     private int _lastTrickPage = -1;
     private float _trickPageDwellElapsed;
     private float _trickExitHoldTimer;
+
+    // "ВАШИ ДЕЙСТВИЯ" live-reaction bugs, one pair built per gesture/trick
+    // page (see SceneSetup.CreateLiveBugPreview) — each already
+    // activates/deactivates along with its own page, no separate stage
+    // toggle needed. The player-2 one on every page still follows the
+    // 1-player/2-player choice, same as the real playerLeft.
+    [SerializeField] private GameObject[] trainingPreviewLeftBugs;
 
     [SerializeField] private Text notImplementedText;
 
@@ -149,14 +155,7 @@ public class StartScreenController : MonoBehaviour
         if (gestureCanvasLeft != null)
             gestureCanvasLeft.SetActive(false);
 
-        // Nothing's chosen a controller yet at this point (that's what row 1
-        // picks), so the menu itself listens for whichever gesture source is
-        // actually available — real sensors if connected, the keyboard
-        // simulator otherwise — on both players at once, in addition to the
-        // plain arrow/WASD keys already handled below.
-        bool useRealSensors = GestureSensorSerial.Instance != null && GestureSensorSerial.Instance.IsConnected;
-        EnableGestureForMenu(gestureRight, useRealSensors);
-        EnableGestureForMenu(gestureLeft, useRealSensors);
+        RestoreMenuGestureMode();
 
         // Not started here anymore — Awake runs the instant the scene
         // loads, while the flower-fill/countdown intro screen is still
@@ -321,6 +320,33 @@ public class StartScreenController : MonoBehaviour
         Canvas startCanvas = canvasRoot != null ? canvasRoot.GetComponent<Canvas>() : null;
         if (startCanvas != null)
             startCanvas.enabled = false;
+
+        // Same input-scheme choice a real run applies (see BeginGame) —
+        // without this, the live "ВАШИ ДЕЙСТВИЯ" bugs on the trick carousel
+        // just keep reading whatever GestureInput/JoystickInput were left
+        // at by default (disabled) instead of whatever was actually picked
+        // on this same menu, and never react to anything. No hardware-
+        // connection check here, unlike BeginGame — a practice screen
+        // shouldn't refuse entry just because a board isn't plugged in yet.
+        bool gestureActive = _selectedController == 1 || _selectedController == 2;
+        bool useRealSensors = _selectedController == 1;
+        if (_selectedPlayers == 2)
+        {
+            if (_selectedController == 1)
+            {
+                // "Датчики" for player 2 means their own joystick board, not
+                // a second pair of hand sensors — see joystickLeft's comment.
+                SetGestureEnabled(gestureLeft, false, false);
+                SetJoystickEnabled(joystickLeft, true);
+            }
+            else
+            {
+                SetGestureEnabled(gestureLeft, gestureActive, useRealSensors);
+                SetJoystickEnabled(joystickLeft, false);
+            }
+        }
+        SetGestureEnabled(gestureRight, gestureActive, useRealSensors);
+
         // Trick-instruction carousel first, not the live screen directly —
         // see trickCarouselCanvasRoot's own comment.
         if (trickCarouselCanvasRoot != null)
@@ -349,22 +375,16 @@ public class StartScreenController : MonoBehaviour
         bool holding = Input.GetKey(KeyCode.DownArrow) || Input.GetKey(KeyCode.S)
             || IsDuckHeld(gestureRight) || IsDuckHeld(gestureLeft);
 
+        // No on-screen countdown reaction for this anymore — per feedback,
+        // just the gestures/buttons and their own effect on the live bugs,
+        // nothing else. The hold-to-exit itself still works silently.
         if (!holding)
         {
             _trickExitHoldTimer = 0f;
-            if (trickCarouselExitCountdownText != null)
-                trickCarouselExitCountdownText.gameObject.SetActive(false);
             return;
         }
 
         _trickExitHoldTimer += Time.deltaTime;
-        if (trickCarouselExitCountdownText != null)
-        {
-            trickCarouselExitCountdownText.gameObject.SetActive(true);
-            int secondsLeft = Mathf.Clamp(Mathf.CeilToInt(TrainingExitHoldDuration - _trickExitHoldTimer), 1, Mathf.CeilToInt(TrainingExitHoldDuration));
-            trickCarouselExitCountdownText.text = secondsLeft.ToString();
-        }
-
         if (_trickExitHoldTimer >= TrainingExitHoldDuration)
         {
             _trickExitHoldTimer = 0f;
@@ -385,8 +405,7 @@ public class StartScreenController : MonoBehaviour
     {
         if (trickCarouselCanvasRoot != null)
             trickCarouselCanvasRoot.SetActive(false);
-        if (trickCarouselExitCountdownText != null)
-            trickCarouselExitCountdownText.gameObject.SetActive(false);
+        RestoreMenuGestureMode();
         Canvas startCanvas = canvasRoot != null ? canvasRoot.GetComponent<Canvas>() : null;
         if (startCanvas != null)
             startCanvas.enabled = true;
@@ -398,6 +417,7 @@ public class StartScreenController : MonoBehaviour
             trainingCanvasRoot.SetActive(false);
         if (trainingExitCountdownText != null)
             trainingExitCountdownText.gameObject.SetActive(false);
+        RestoreMenuGestureMode();
         Canvas startCanvas = canvasRoot != null ? canvasRoot.GetComponent<Canvas>() : null;
         if (startCanvas != null)
             startCanvas.enabled = true;
@@ -411,6 +431,15 @@ public class StartScreenController : MonoBehaviour
         // the instant the selection changes, before Start is even pressed.
         if (playerLeft != null)
             playerLeft.SetActive(!oneSelected);
+        // Same choice governs every gesture/trick page's own live preview —
+        // the player-1 bug always shows, the player-2 one on each page
+        // follows 1-player/2-player just like the real playerLeft above.
+        if (trainingPreviewLeftBugs != null)
+        {
+            foreach (var bug in trainingPreviewLeftBugs)
+                if (bug != null)
+                    bug.SetActive(!oneSelected);
+        }
 
         // Solo mode stands the lone player in the middle lane instead of
         // its usual (right-edge) co-op starting lane.
@@ -708,6 +737,22 @@ public class StartScreenController : MonoBehaviour
             return;
 
         joystick.enabled = enabled;
+    }
+
+    // Nothing's chosen a controller yet on the button-selection menu (that's
+    // what row 1 picks), so it listens for whichever gesture source is
+    // actually available — real sensors if connected, the keyboard
+    // simulator otherwise — on both players at once, regardless of
+    // whatever a training session just set gestureRight/gestureLeft to
+    // (see BeginTraining). Called once from Awake, and again on every path
+    // back to this menu (ExitTrickCarouselToMenu, ExitTraining) so a
+    // keyboard-only training visit doesn't leave the confirm-jump gesture
+    // dead once you're back.
+    private void RestoreMenuGestureMode()
+    {
+        bool useRealSensors = GestureSensorSerial.Instance != null && GestureSensorSerial.Instance.IsConnected;
+        EnableGestureForMenu(gestureRight, useRealSensors);
+        EnableGestureForMenu(gestureLeft, useRealSensors);
     }
 
     // Menu-only: turns a GestureInput on regardless of the (not yet made)
