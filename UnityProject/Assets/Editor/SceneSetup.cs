@@ -6,7 +6,7 @@ using UnityEngine.UI;
 
 public static class SceneSetup
 {
-    const int LaneCount = 3;
+    const int LaneCount = 4;
     const float LaneWidth = 4f;
     const float RoadLength = 150f;
     const float RoadCenterZ = 1f;
@@ -1320,7 +1320,7 @@ public static class SceneSetup
         label.fontSize = 31; // 27 * 1.15
         label.fontStyle = FontStyle.Bold;
         label.alignment = TextAnchor.UpperCenter;
-        label.color = color ?? new Color(0.85f, 0.85f, 0.85f);
+        label.color = color ?? new Color(1f, 1f, 1f); // bright white — was a dim 0.85 gray, per feedback all 4 panel labels should share one brighter color
         label.text = text;
         RectTransform labelRt = labelGo.GetComponent<RectTransform>();
         labelRt.anchorMin = new Vector2(0f, 1f);
@@ -1397,7 +1397,7 @@ public static class SceneSetup
         // (where the "ДИСТАНЦИЯ" label hangs from, see CreatePanelLabel)
         // moves up along with it. Nudged right and (net) up a bit from
         // where it started, per feedback.
-        NudgeContentScreenSpace(distanceContentRt, distancePanelGo.transform, new Vector2(36f, -50f));
+        NudgeContentScreenSpace(distanceContentRt, distancePanelGo.transform, new Vector2(54f, -20f)); // further right and higher still, per feedback
 
         CreatePanelLabel(distanceContentRt, "ДИСТАНЦИЯ");
 
@@ -1410,7 +1410,7 @@ public static class SceneSetup
         distanceText.alignment = TextAnchor.MiddleCenter;
         distanceText.color = new Color(0.7f, 1f, 0.7f);
         distanceText.verticalOverflow = VerticalWrapMode.Overflow;
-        distanceText.text = "0\nиз\n100"; // DistanceIndicator overwrites this every frame with the real live value
+        distanceText.text = "0 км\n<size=26>из</size>\n100 км"; // DistanceIndicator overwrites this every frame with the real live value
 
         Outline distanceOutline = distanceTextGo.AddComponent<Outline>();
         distanceOutline.effectColor = Color.black;
@@ -2122,6 +2122,12 @@ public static class SceneSetup
         var canvasGo = new GameObject("TricksCanvas");
         Canvas canvas = canvasGo.AddComponent<Canvas>();
         canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        // scoreCanvas (CreateScoreUI) carries this corner's own wedge
+        // backdrop and is also sortingOrder 0 — with ties, separate overlay
+        // canvases draw in hierarchy-registration order, not script creation
+        // order, so ТРЮКИ's label could end up drawn (and dimmed) UNDER that
+        // backdrop instead of on top of it. Explicit order removes the guess.
+        canvas.sortingOrder = 1;
 
         CanvasScaler scaler = canvasGo.AddComponent<CanvasScaler>();
         scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
@@ -2148,7 +2154,7 @@ public static class SceneSetup
         RectTransform tricksContentRt = CreateWedgeContent(panelGo.transform, true, 0f, WedgeContentRadius, rightContentWidth, 207f);
         NudgeContentScreenSpace(tricksContentRt, panelGo.transform, new Vector2(0f, -36f)); // lower still, per repeated feedback
 
-        CreatePanelLabel(tricksContentRt, "ТРЮКИ", new Color(0.75f, 0.95f, 1f)); // brighter than the other panel labels, per feedback
+        CreatePanelLabel(tricksContentRt, "ТРЮКИ"); // back to the shared default color, per feedback all 4 panel labels should match
 
         var textGo = new GameObject("TricksText");
         textGo.transform.SetParent(tricksContentRt, false);
@@ -2716,6 +2722,17 @@ public static class SceneSetup
         var ringPage = CreateRingTrickPage(trickCarouselRt, playerRight, playerLeft);
         trainingPreviewLeftBugs.Add(ringPage.leftBug);
 
+        var leapfrogPage = CreateLeapfrogTrickPage(trickCarouselRt, playerRight, playerLeft);
+        trainingPreviewLeftBugs.Add(leapfrogPage.leftBug);
+        var syncPage = CreateSyncTrickPage(trickCarouselRt, playerRight, playerLeft);
+        trainingPreviewLeftBugs.Add(syncPage.leftBug);
+        var hoverPage = CreateHoverTrickPage(trickCarouselRt, playerRight, playerLeft);
+        trainingPreviewLeftBugs.Add(hoverPage.leftBug);
+        var bigRingPage = CreateBigRingTrickPage(trickCarouselRt, playerRight, playerLeft);
+        trainingPreviewLeftBugs.Add(bigRingPage.leftBug);
+        var infinityPage = CreateInfinityTrickPage(trickCarouselRt, playerRight, playerLeft);
+        trainingPreviewLeftBugs.Add(infinityPage.leftBug);
+
         var trickCarouselPages = new System.Collections.Generic.List<GameObject>
         {
             // Gesture-move pages first (moved here from the main upfront
@@ -2731,11 +2748,11 @@ public static class SceneSetup
 
             archPage.page,
             ringPage.page,
-            CreateLeapfrogTrickPage(trickCarouselRt),
-            CreateSyncTrickPage(trickCarouselRt),
-            CreateHoverTrickPage(trickCarouselRt),
-            CreateBigRingTrickPage(trickCarouselRt),
-            CreateInfinityTrickPage(trickCarouselRt),
+            leapfrogPage.page,
+            syncPage.page,
+            hoverPage.page,
+            bigRingPage.page,
+            infinityPage.page,
         };
         for (int i = 1; i < trickCarouselPages.Count; i++)
             trickCarouselPages[i].SetActive(false);
@@ -3094,7 +3111,33 @@ public static class SceneSetup
     // were built to span almost the FULL page width/height (routes/arcs
     // reaching ±600+), well past half a page, and need shrinking down to
     // actually fit next to ВАШИ ДЕЙСТВИЯ instead of spilling across it.
-    static void CreateTrainingSplit(GameObject page, GameObject playerRight, GameObject playerLeft, float sampleContentScale, out GameObject leftBug, System.Action<Transform> contentBuilder)
+    // routeDrawer, if given, draws the same dashed route/path guide on
+    // BOTH columns (at the same scale) — per feedback it only ever showed
+    // up on the ОБРАЗЕЦ side, leaving a player nothing to actually aim for
+    // while practicing against their own live bug on the right.
+    //
+    // A plain, unscaled child unless scale != 1, in which case content is
+    // nested one level deeper inside a uniformly-scaled wrapper centered on
+    // the parent — shared by both of CreateTrainingSplit's columns so the
+    // ОБРАЗЕЦ diagram and its route-guide twin on ВАШИ ДЕЙСТВИЯ always end
+    // up at the exact same effective scale.
+    static Transform CreateScaledContainer(Transform parent, float scale)
+    {
+        if (Mathf.Approximately(scale, 1f))
+            return parent;
+
+        var scaledGo = new GameObject("ScaledContent");
+        scaledGo.transform.SetParent(parent, false);
+        RectTransform scaledRt = scaledGo.AddComponent<RectTransform>();
+        scaledRt.anchorMin = new Vector2(0.5f, 0.5f);
+        scaledRt.anchorMax = new Vector2(0.5f, 0.5f);
+        scaledRt.pivot = new Vector2(0.5f, 0.5f);
+        scaledRt.sizeDelta = Vector2.zero;
+        scaledRt.anchoredPosition = Vector2.zero;
+        scaledGo.transform.localScale = Vector3.one * scale;
+        return scaledGo.transform;
+    }
+    static void CreateTrainingSplit(GameObject page, GameObject playerRight, GameObject playerLeft, float sampleContentScale, out GameObject leftBug, System.Action<Transform> contentBuilder, System.Action<Transform> routeDrawer = null)
     {
         var sampleColumnGo = new GameObject("ObrazetsColumn");
         sampleColumnGo.transform.SetParent(page.transform, false);
@@ -3106,20 +3149,8 @@ public static class SceneSetup
 
         CreateSplitColumnLabel(sampleColumnGo.transform, "ОБРАЗЕЦ", new Color(0.7f, 0.85f, 1f));
 
-        Transform sampleContentParent = sampleColumnGo.transform;
-        if (!Mathf.Approximately(sampleContentScale, 1f))
-        {
-            var scaledGo = new GameObject("ScaledContent");
-            scaledGo.transform.SetParent(sampleColumnGo.transform, false);
-            RectTransform scaledRt = scaledGo.AddComponent<RectTransform>();
-            scaledRt.anchorMin = new Vector2(0.5f, 0.5f);
-            scaledRt.anchorMax = new Vector2(0.5f, 0.5f);
-            scaledRt.pivot = new Vector2(0.5f, 0.5f);
-            scaledRt.sizeDelta = Vector2.zero;
-            scaledRt.anchoredPosition = Vector2.zero;
-            scaledGo.transform.localScale = Vector3.one * sampleContentScale;
-            sampleContentParent = scaledGo.transform;
-        }
+        Transform sampleContentParent = CreateScaledContainer(sampleColumnGo.transform, sampleContentScale);
+        routeDrawer?.Invoke(sampleContentParent);
         contentBuilder(sampleContentParent);
 
         var actionColumnGo = new GameObject("VashiDeystviyaColumn");
@@ -3130,19 +3161,45 @@ public static class SceneSetup
         actionColumnRt.offsetMin = Vector2.zero;
         actionColumnRt.offsetMax = Vector2.zero;
 
+        // Same route, same scale, drawn first so the live bugs below render
+        // in front of it rather than being obscured by it.
+        Transform actionRouteParent = CreateScaledContainer(actionColumnGo.transform, sampleContentScale);
+        routeDrawer?.Invoke(actionRouteParent);
+
         CreateSplitColumnLabel(actionColumnGo.transform, "ВАШИ ДЕЙСТВИЯ", new Color(0.6f, 1f, 0.6f));
 
         const float bugHeight = 200f; // matches the ОБРАЗЕЦ side's own bug size exactly
         // Roughly the vertical center of the page (was 100, up near the
         // ОБРАЗЕЦ bug's own old height) — per feedback, its resting/start
         // pose should sit closer to the middle of this column, not high up.
-        const float liveBugRestY = 0f;
-        CreateLiveBugPreview(actionColumnGo.transform, new Vector2(-90f, liveBugRestY), bugHeight,
+        // Set to the exact midpoint between top (rest+flyRise=90) and duck
+        // (rest-60-duckDrop=-265) — was 0, then -25, neither was the real
+        // midpoint of those 2 fixed endpoints. flyRise/duckDrop
+        // (LiveBugReactionAnimator) were adjusted by the same amount this
+        // moved so top's and duck's own on-screen positions stay put.
+        const float liveBugRestY = -87.5f;
+        // Rest (center) positions sit close together — was ±90, a bit
+        // wider than the bugs' own half-width (~98, at bugHeight 200) so
+        // they didn't even touch — per feedback the two should read as
+        // "almost in the same spot, just slightly offset" at rest, only
+        // pulling apart once one of them actually leans away.
+        const float liveBugRestX = 35f;
+        // Right side for player-right (arrow keys, physically the right
+        // side of a keyboard), left side for player-left (WASD, physically
+        // the left side) — matches the real game's own control layout, per
+        // feedback (was swapped from this before). Each bug's 3 lane X
+        // coordinates are explicit, not computed from a shift — both bugs
+        // share the same column and are meant to freely cross into each
+        // other's territory while leaning (per feedback, deliberately
+        // UNLIKE the real game's own separate, non-crossing lanes).
+        // Tinted the same colors the real players wear in-game (see
+        // CreatePlayer's own tint args).
+        CreateLiveBugPreview(actionColumnGo.transform, new Vector2(liveBugRestX, liveBugRestY), bugHeight,
             playerRight.GetComponent<GestureInput>(), playerRight.GetComponent<JoystickInput>(),
-            KeyCode.LeftArrow, KeyCode.RightArrow, KeyCode.UpArrow, KeyCode.DownArrow, "LadyBug1.png");
-        leftBug = CreateLiveBugPreview(actionColumnGo.transform, new Vector2(90f, liveBugRestY), bugHeight,
+            KeyCode.LeftArrow, KeyCode.RightArrow, KeyCode.UpArrow, KeyCode.DownArrow, "LadyBug1.png", Color.white, -140f, liveBugRestX, 160f);
+        leftBug = CreateLiveBugPreview(actionColumnGo.transform, new Vector2(-liveBugRestX, liveBugRestY), bugHeight,
             playerLeft.GetComponent<GestureInput>(), playerLeft.GetComponent<JoystickInput>(),
-            KeyCode.A, KeyCode.D, KeyCode.W, KeyCode.S, "LadyBug2.png");
+            KeyCode.A, KeyCode.D, KeyCode.W, KeyCode.S, "LadyBug2.png", new Color(0.55f, 0.75f, 1f), -160f, -liveBugRestX, 140f);
 
         CreateDashedVerticalDivider(page.transform);
     }
@@ -3152,13 +3209,15 @@ public static class SceneSetup
     // lean shift+tilt, flap rise+frame-swap), driven by LiveBugReactionAnimator
     // from the given real player's actual input instead of a scripted loop.
     static GameObject CreateLiveBugPreview(Transform parent, Vector2 anchoredPos, float bugHeight,
-        GestureInput gestureInput, JoystickInput joystickInput, KeyCode left, KeyCode right, KeyCode up, KeyCode down, string spriteFile)
+        GestureInput gestureInput, JoystickInput joystickInput, KeyCode left, KeyCode right, KeyCode up, KeyCode down, string spriteFile, Color tint,
+        float laneXLeft, float laneXCenter, float laneXRight)
     {
         Texture2D bugTex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/" + spriteFile);
         var bugGo = new GameObject("LiveBug");
         bugGo.transform.SetParent(parent, false);
         RawImage bugImage = bugGo.AddComponent<RawImage>();
         bugImage.texture = bugTex;
+        bugImage.color = tint;
         RectTransform bugRt = bugImage.GetComponent<RectTransform>();
         bugRt.anchorMin = new Vector2(0.5f, 0.5f);
         bugRt.anchorMax = new Vector2(0.5f, 0.5f);
@@ -3179,6 +3238,9 @@ public static class SceneSetup
         so.FindProperty("bugNormalTexture").objectReferenceValue = bugTex;
         so.FindProperty("bugAirTexture1").objectReferenceValue = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/" + spriteFile.Replace(".png", "Air1.png"));
         so.FindProperty("bugAirTexture2").objectReferenceValue = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/" + spriteFile.Replace(".png", "Air2.png"));
+        so.FindProperty("laneXLeft").floatValue = laneXLeft;
+        so.FindProperty("laneXCenter").floatValue = laneXCenter;
+        so.FindProperty("laneXRight").floatValue = laneXRight;
         so.ApplyModifiedPropertiesWithoutUndo();
 
         return bugGo;
@@ -3812,34 +3874,38 @@ public static class SceneSetup
         CreatePageTitle(page.transform, "ТРЮК: КОЛЬЦО", new Color(0.7f, 0.4f, 1f));
 
         GameObject leftBug;
+        const float bugX = 220f;
+        const float arrowY = 110f;
+        // Big dashed oval behind the bugs — roughly the shape of the whole
+        // rise/cross/come-down route, not a literal trace of it.
+        const float ovalYRadius = arrowY * 1.4f;
+        System.Func<float, Vector2> oval = t =>
+        {
+            float angle = t * Mathf.PI * 2f;
+            return new Vector2(Mathf.Cos(angle) * bugX * 1.6f, Mathf.Sin(angle) * ovalYRadius);
+        };
+        // No arrowhead — a plain closed oval, not a directional cue (see
+        // CreateDashedRouteBackdrop's own showArrowheads comment). Drawn on
+        // both ОБРАЗЕЦ and ВАШИ ДЕЙСТВИЯ (routeDrawer, see CreateTrainingSplit)
+        // instead of just inline here, so it isn't ОБРАЗЕЦ-only.
+        System.Action<Transform> routeDrawer = routeContent => CreateDashedRouteBackdrop(routeContent, null, 1400f, false, oval);
         // Oval route reaches ±352 wide natively (bugX*1.6) — well past half
         // a page — shrunk down (0.72) to actually fit next to ВАШИ ДЕЙСТВИЯ.
         CreateTrainingSplit(page, playerRight, playerLeft, 0.72f, out leftBug, content =>
         {
             const float bugHeight = 150f;
-            const float bugX = 220f;
-            const float arrowY = 110f;
-
-            // Big dashed oval behind the bugs — roughly the shape of the whole
-            // rise/cross/come-down route, not a literal trace of it.
-            const float ovalYRadius = arrowY * 1.4f;
-            System.Func<float, Vector2> oval = t =>
-            {
-                float angle = t * Mathf.PI * 2f;
-                return new Vector2(Mathf.Cos(angle) * bugX * 1.6f, Mathf.Sin(angle) * ovalYRadius);
-            };
-            // No arrowhead — a plain closed oval, not a directional cue (see
-            // CreateDashedRouteBackdrop's own showArrowheads comment).
-            CreateDashedRouteBackdrop(content, null, 1400f, false, oval);
 
             // Both bugs start right at the oval's own bottom point, not y=0 —
             // the whole rise/cross/come-down animation is built relative to
             // wherever these two start (RingTrickAnimation.Awake reads their
             // position directly), so this lines the entire loop up with the
             // route drawn behind it instead of starting mid-air relative to it.
+            // LadyBug2 (blue, player-left) on the left, LadyBug1 (white,
+            // player-right) on the right — same left/right-to-color mapping
+            // ВАШИ ДЕЙСТВИЯ's own live bugs use, so ОБРАЗЕЦ doesn't flip it.
             float startY = -ovalYRadius;
-            RectTransform airBug = CreateTrickBugIcon(content, "LadyBug1.png", new Vector2(-bugX, startY), bugHeight);
-            RectTransform groundBug = CreateTrickBugIcon(content, "LadyBug2.png", new Vector2(bugX, startY), bugHeight);
+            RectTransform airBug = CreateTrickBugIcon(content, "LadyBug2.png", new Vector2(-bugX, startY), bugHeight);
+            RectTransform groundBug = CreateTrickBugIcon(content, "LadyBug1.png", new Vector2(bugX, startY), bugHeight);
 
             // Single reusable arrow per bug — glyph and position are swapped
             // per beat by RingTrickAnimation itself (up, then sideways in each
@@ -3882,9 +3948,9 @@ public static class SceneSetup
             // short of the top.
             ringSo.FindProperty("arcHeight").floatValue = 2f * ovalYRadius;
             ringSo.FindProperty("successText").objectReferenceValue = successGo;
-            ringSo.FindProperty("airBugAirTexture").objectReferenceValue = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/LadyBug1Air1.png");
+            ringSo.FindProperty("airBugAirTexture").objectReferenceValue = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/LadyBug2Air1.png");
             ringSo.ApplyModifiedPropertiesWithoutUndo();
-        });
+        }, routeDrawer);
 
         return (page, leftBug);
     }
@@ -3898,67 +3964,75 @@ public static class SceneSetup
     // that's painful to round-trip through SerializedProperty, and it
     // needs no Inspector visibility since the scene is always regenerated
     // fresh from here.
-    static GameObject CreateTrickDiagramPage(Transform parent, string title, string spriteA, string spriteB,
+    static (GameObject page, GameObject leftBug, Transform content) CreateTrickDiagramPage(Transform parent, string title, string spriteA, string spriteB,
         string airTextureA, string airTextureB, TrickDiagramAnimation.Step[] pathA, TrickDiagramAnimation.Step[] pathB,
+        GameObject playerRight, GameObject playerLeft, float sampleContentScale,
         float staggerDelay = 0f, (Vector2 pos, float radius)[] routeDots = null, float laneSpacing = 210f,
         bool showArrowheads = true, params System.Func<float, Vector2>[] routeCurves)
     {
         GameObject page = CreateFillPage(parent, "Page_Trick_" + title);
         CreatePageTitle(page.transform, "ТРЮК: " + title, new Color(0.7f, 0.4f, 1f));
 
+        GameObject leftBug;
+        Transform capturedContent = null;
+        System.Action<Transform> routeDrawer = null;
         if ((routeCurves != null && routeCurves.Length > 0) || (routeDots != null && routeDots.Length > 0))
-            CreateDashedRouteBackdrop(page.transform, routeDots, 1400f, showArrowheads, routeCurves);
+            routeDrawer = routeContent => CreateDashedRouteBackdrop(routeContent, routeDots, 1400f, showArrowheads, routeCurves);
+        CreateTrainingSplit(page, playerRight, playerLeft, sampleContentScale, out leftBug, content =>
+        {
+            capturedContent = content;
 
-        const float bugHeight = 150f;
+            const float bugHeight = 150f;
 
-        Vector2 startA = new Vector2((pathA[0].lane - 1) * laneSpacing, pathA[0].y);
-        Vector2 startB = new Vector2((pathB[0].lane - 1) * laneSpacing, pathB[0].y);
-        RectTransform bugA = CreateTrickBugIcon(page.transform, spriteA, startA, bugHeight);
-        RectTransform bugB = CreateTrickBugIcon(page.transform, spriteB, startB, bugHeight);
+            Vector2 startA = new Vector2((pathA[0].lane - 1) * laneSpacing, pathA[0].y);
+            Vector2 startB = new Vector2((pathB[0].lane - 1) * laneSpacing, pathB[0].y);
+            RectTransform bugA = CreateTrickBugIcon(content, spriteA, startA, bugHeight);
+            RectTransform bugB = CreateTrickBugIcon(content, spriteB, startB, bugHeight);
 
-        // Small — half the size CreateSingleArrow's other callers (Arch/
-        // Ring's own big directional cues) use, since these ride right next
-        // to the bug on every little step rather than standing alone.
-        Color arrowColor = new Color(1f, 0.85f, 0.2f);
-        RectTransform arrowA = CreateSingleArrow(page.transform, "→", arrowColor, startA);
-        arrowA.localScale = Vector3.one * 0.5f;
-        arrowA.gameObject.SetActive(false);
-        RectTransform arrowB = CreateSingleArrow(page.transform, "→", arrowColor, startB);
-        arrowB.localScale = Vector3.one * 0.5f;
-        arrowB.gameObject.SetActive(false);
+            // Small — half the size CreateSingleArrow's other callers (Arch/
+            // Ring's own big directional cues) use, since these ride right next
+            // to the bug on every little step rather than standing alone.
+            Color arrowColor = new Color(1f, 0.85f, 0.2f);
+            RectTransform arrowA = CreateSingleArrow(content, "→", arrowColor, startA);
+            arrowA.localScale = Vector3.one * 0.5f;
+            arrowA.gameObject.SetActive(false);
+            RectTransform arrowB = CreateSingleArrow(content, "→", arrowColor, startB);
+            arrowB.localScale = Vector3.one * 0.5f;
+            arrowB.gameObject.SetActive(false);
 
-        var successGo = new GameObject("SuccessText");
-        successGo.transform.SetParent(page.transform, false);
-        Text successText = successGo.AddComponent<Text>();
-        successText.font = GameFont;
-        successText.fontSize = 44;
-        successText.fontStyle = FontStyle.Bold;
-        successText.alignment = TextAnchor.MiddleCenter;
-        successText.color = new Color(0.4f, 1f, 0.5f);
-        successText.text = "ТРЮК ВЫПОЛНЕН +1";
-        successGo.AddComponent<Outline>().effectColor = Color.black;
-        RectTransform successRt = successText.GetComponent<RectTransform>();
-        successRt.anchorMin = new Vector2(0.5f, 0.5f);
-        successRt.anchorMax = new Vector2(0.5f, 0.5f);
-        successRt.pivot = new Vector2(0.5f, 0.5f);
-        successRt.sizeDelta = new Vector2(700f, 80f);
-        successRt.anchoredPosition = new Vector2(0f, -300f);
-        successGo.SetActive(false);
+            var successGo = new GameObject("SuccessText");
+            successGo.transform.SetParent(content, false);
+            Text successText = successGo.AddComponent<Text>();
+            successText.font = GameFont;
+            successText.fontSize = 44;
+            successText.fontStyle = FontStyle.Bold;
+            successText.alignment = TextAnchor.MiddleCenter;
+            successText.color = new Color(0.4f, 1f, 0.5f);
+            successText.text = "ТРЮК ВЫПОЛНЕН +1";
+            successGo.AddComponent<Outline>().effectColor = Color.black;
+            RectTransform successRt = successText.GetComponent<RectTransform>();
+            successRt.anchorMin = new Vector2(0.5f, 0.5f);
+            successRt.anchorMax = new Vector2(0.5f, 0.5f);
+            successRt.pivot = new Vector2(0.5f, 0.5f);
+            successRt.sizeDelta = new Vector2(700f, 80f);
+            successRt.anchoredPosition = new Vector2(0f, -300f);
+            successGo.SetActive(false);
 
-        TrickDiagramAnimation anim = page.AddComponent<TrickDiagramAnimation>();
-        anim.bugA = bugA;
-        anim.bugB = bugB;
-        anim.pathA = pathA;
-        anim.pathB = pathB;
-        anim.arrowA = arrowA;
-        anim.arrowB = arrowB;
-        anim.staggerDelay = staggerDelay;
-        anim.successText = successGo;
-        anim.laneSpacing = laneSpacing;
-        anim.airTextureA = string.IsNullOrEmpty(airTextureA) ? null : AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/" + airTextureA);
-        anim.airTextureB = string.IsNullOrEmpty(airTextureB) ? null : AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/" + airTextureB);
+            TrickDiagramAnimation anim = page.AddComponent<TrickDiagramAnimation>();
+            anim.bugA = bugA;
+            anim.bugB = bugB;
+            anim.pathA = pathA;
+            anim.pathB = pathB;
+            anim.arrowA = arrowA;
+            anim.arrowB = arrowB;
+            anim.staggerDelay = staggerDelay;
+            anim.successText = successGo;
+            anim.laneSpacing = laneSpacing;
+            anim.airTextureA = string.IsNullOrEmpty(airTextureA) ? null : AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/" + airTextureA);
+            anim.airTextureB = string.IsNullOrEmpty(airTextureB) ? null : AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/" + airTextureB);
+        }, routeDrawer);
 
-        return page;
+        return (page, leftBug, capturedContent);
     }
 
     // ЧЕХАРДА: both start stacked in an edge lane (A riding on B). A
@@ -3966,7 +4040,7 @@ public static class SceneSetup
     // separate steps, not one diagonal move — freeing B to clear both
     // remaining lanes in one continuous airborne hop, from the edge lane
     // straight to the opposite edge, never landing in between.
-    static GameObject CreateLeapfrogTrickPage(Transform parent)
+    static (GameObject page, GameObject leftBug) CreateLeapfrogTrickPage(Transform parent, GameObject playerRight, GameObject playerLeft)
     {
         // Bigger vertical spread overall (per feedback) — ground pushed
         // lower and both air heights pushed higher than before (was 0/90/110),
@@ -4014,8 +4088,12 @@ public static class SceneSetup
         System.Func<float, Vector2> arc2Bulge = t => new Vector2(0f, Mathf.Sin(t * Mathf.PI) * arc2BulgeAmplitude);
         System.Func<float, Vector2> arc2 = t =>
             Vector2.Lerp(new Vector2(-620f, groundY - 20f), new Vector2(620f, groundY), t) + arc2Bulge(t);
-        return CreateTrickDiagramPage(parent, "ЧЕХАРДА", "LadyBug2.png", "LadyBug1.png",
-            "LadyBug2Air1.png", "LadyBug1Air1.png", pathA, pathB, 0f, null, wideLaneSpacing, true, arc1, arc2);
+        // Native route reach (±620) is well past half a page — shrunk down
+        // (0.47) to actually fit next to ВАШИ ДЕЙСТВИЯ, same reasoning as
+        // RingTrickPage's own scale.
+        var (page, leftBug, _) = CreateTrickDiagramPage(parent, "ЧЕХАРДА", "LadyBug2.png", "LadyBug1.png",
+            "LadyBug2Air1.png", "LadyBug1Air1.png", pathA, pathB, playerRight, playerLeft, 0.47f, 0f, null, wideLaneSpacing, true, arc1, arc2);
+        return (page, leftBug);
     }
 
     // СИНХРОН: same stacked start as ЧЕХАРДА, but this time the pair never
@@ -4023,7 +4101,7 @@ public static class SceneSetup
     // opposite edge lane, still stacked at the end. Base sits well below
     // the rider (110 vs -70, more than their combined half-heights apart)
     // so the two icons don't visually overlap.
-    static GameObject CreateSyncTrickPage(Transform parent)
+    static (GameObject page, GameObject leftBug) CreateSyncTrickPage(Transform parent, GameObject playerRight, GameObject playerLeft)
     {
         // 2 separate steps with a real pause between them, not one
         // continuous slide — matches the route below now being 2 distinct
@@ -4058,8 +4136,9 @@ public static class SceneSetup
         System.Func<float, Vector2> rowB1 = t => Vector2.Lerp(new Vector2(-620f, -70f), new Vector2(-dotGap, -70f), t);
         System.Func<float, Vector2> rowB2 = t => Vector2.Lerp(new Vector2(0f, -70f), new Vector2(620f, -70f), t);
         var dots = new (Vector2, float)[] { (new Vector2(0f, 110f), 16f), (new Vector2(0f, -70f), 16f) };
-        return CreateTrickDiagramPage(parent, "СИНХРОН", "LadyBug2.png", "LadyBug1.png",
-            "LadyBug2Air1.png", null, pathA, pathB, 0f, dots, wideLaneSpacing, true, rowA1, rowA2, rowB1, rowB2);
+        var (page, leftBug, _) = CreateTrickDiagramPage(parent, "СИНХРОН", "LadyBug2.png", "LadyBug1.png",
+            "LadyBug2Air1.png", null, pathA, pathB, playerRight, playerLeft, 0.47f, 0f, dots, wideLaneSpacing, true, rowA1, rowA2, rowB1, rowB2);
+        return (page, leftBug);
     }
 
     // ЗАВИСАНИЕ: both jump up (each in their own lane) and stay up, bobbing
@@ -4067,7 +4146,7 @@ public static class SceneSetup
     // holding Up (or tapping it again right as a jump would otherwise end)
     // keeps chaining into another jump as long as a partner is also
     // airborne, see PlayerController.UpdateVerticalState.
-    static GameObject CreateHoverTrickPage(Transform parent)
+    static (GameObject page, GameObject leftBug) CreateHoverTrickPage(Transform parent, GameObject playerRight, GameObject playerLeft)
     {
         // Each counted digit is one full up+down bounce (0.2s up-travel +
         // 0.05s hold at the peak + 0.2s down-travel + 0.05s hold at the
@@ -4113,11 +4192,19 @@ public static class SceneSetup
             new TrickDiagramAnimation.Step { lane = 2, y = baseY, airborne = true,  travelDuration = bounceTravel, holdDuration = bounceHold, hideArrow = true },
             new TrickDiagramAnimation.Step { lane = 2, y = 0f,    airborne = false, travelDuration = 0.3f,  holdDuration = 0.6f, hideArrow = true },
         };
-        GameObject page = CreateTrickDiagramPage(parent, "ЗАВИСАНИЕ", "LadyBug1.png", "LadyBug2.png",
-            "LadyBug1Air1.png", "LadyBug2Air1.png", pathA, pathB);
+        // No route overlay on this one at all (no routeDots/routeCurves
+        // passed below) and the default (narrow) laneSpacing, so its native
+        // content already fits comfortably next to ВАШИ ДЕЙСТВИЯ — just a
+        // small safety-margin shrink, not the aggressive one the wide-route
+        // pages need.
+        // spriteA=LadyBug2 (blue, player-left) rides pathA (lane 0, left);
+        // spriteB=LadyBug1 (white, player-right) rides pathB (lane 2, right)
+        // — same left/right-to-color mapping ВАШИ ДЕЙСТВИЯ's live bugs use.
+        var (page, leftBug, content) = CreateTrickDiagramPage(parent, "ЗАВИСАНИЕ", "LadyBug2.png", "LadyBug1.png",
+            "LadyBug2Air1.png", "LadyBug1Air1.png", pathA, pathB, playerRight, playerLeft, 0.85f);
 
         var counterGo = new GameObject("HoverCounter");
-        counterGo.transform.SetParent(page.transform, false);
+        counterGo.transform.SetParent(content, false);
         Text counterText = counterGo.AddComponent<Text>();
         counterText.font = GameFont;
         counterText.fontSize = 60;
@@ -4142,7 +4229,7 @@ public static class SceneSetup
         anim.counterStart = 0.6f + 0.3f + 0.1f;
         anim.counterEnd = anim.counterStart + 5f * (bounceTravel + bounceHold) * 2f;
 
-        return page;
+        return (page, leftBug);
     }
 
     // БОЛЬШОЕ КОЛЬЦО: one after another, not simultaneous — B starts a
@@ -4153,7 +4240,7 @@ public static class SceneSetup
     // of a narrow band in the page's center, and B starts already at the
     // middle lane (rather than stacked on A's own edge start) so the two
     // icons read as distinct from the very first frame, not overlapping.
-    static GameObject CreateBigRingTrickPage(Transform parent)
+    static (GameObject page, GameObject leftBug) CreateBigRingTrickPage(Transform parent, GameObject playerRight, GameObject playerLeft)
     {
         const float wideLaneSpacing = 480f;
         // Full 7-step there-and-back loop, both bugs running it
@@ -4198,8 +4285,15 @@ public static class SceneSetup
             float angle = t * Mathf.PI * 2f;
             return new Vector2(Mathf.Cos(angle) * 650f, Mathf.Sin(angle) * ovalYRadius);
         };
-        return CreateTrickDiagramPage(parent, "БОЛЬШОЕ КОЛЬЦО", "LadyBug1.png", "LadyBug2.png",
-            "LadyBug1Air1.png", "LadyBug2Air1.png", pathA, pathB, 0f, null, wideLaneSpacing, true, oval);
+        // Oval's own reach (±650) is the widest of any trick page's route —
+        // shrunk down (0.46) to fit next to ВАШИ ДЕЙСТВИЯ.
+        // spriteA=LadyBug2 (blue, player-left) rides pathA (starts lane 0,
+        // left); spriteB=LadyBug1 (white, player-right) rides pathB (starts
+        // lane 1) — same left/right-to-color mapping ВАШИ ДЕЙСТВИЯ's live
+        // bugs use, so their starting frame doesn't flip it.
+        var (page, leftBug, _) = CreateTrickDiagramPage(parent, "БОЛЬШОЕ КОЛЬЦО", "LadyBug2.png", "LadyBug1.png",
+            "LadyBug2Air1.png", "LadyBug1Air1.png", pathA, pathB, playerRight, playerLeft, 0.46f, 0f, null, wideLaneSpacing, true, oval);
+        return (page, leftBug);
     }
 
     // БЕСКОНЕЧНОСТЬ: both bugs run the same figure-8 shape simultaneously
@@ -4209,7 +4303,7 @@ public static class SceneSetup
     // (fly back to center, THEN a separate touch-down beat) rather than
     // landing directly off the flight. Wide laneSpacing (below) matches
     // the lemniscate route's own reach.
-    static GameObject CreateInfinityTrickPage(Transform parent)
+    static (GameObject page, GameObject leftBug) CreateInfinityTrickPage(Transform parent, GameObject playerRight, GameObject playerLeft)
     {
         const float wideLaneSpacing = 480f;
         // Vertical spread pushed further still (per feedback: ground lower,
@@ -4262,13 +4356,20 @@ public static class SceneSetup
         // the same point), same reasoning as the ring trick's own oval; a
         // direction arrow on it reads as clutter, not a cue. Just a plain
         // dashed line now.
-        return CreateTrickDiagramPage(parent, "БЕСКОНЕЧНОСТЬ", "LadyBug1.png", "LadyBug2.png",
-            "LadyBug1Air1.png", "LadyBug2Air1.png", pathA, pathB, 0f, null, wideLaneSpacing, false, infinity);
+        // Lemniscate's own reach (±600) is well past half a page — shrunk
+        // down (0.5) to fit next to ВАШИ ДЕЙСТВИЯ.
+        var (page, leftBug, _) = CreateTrickDiagramPage(parent, "БЕСКОНЕЧНОСТЬ", "LadyBug1.png", "LadyBug2.png",
+            "LadyBug1Air1.png", "LadyBug2Air1.png", pathA, pathB, playerRight, playerLeft, 0.5f, 0f, null, wideLaneSpacing, false, infinity);
+        return (page, leftBug);
     }
 
     // spriteFile: LadyBug1.png/LadyBug2.png — same textures the players
     // actually wear in-game. No label (ArchTrickAnimation's arrows carry
-    // the explanation instead).
+    // the explanation instead). Tinted to match — white for LadyBug1 (the
+    // real player-right's own tint, see CreatePlayer's own "PlayerRight"
+    // call), light blue for LadyBug2 (player-left's) — inferred from the
+    // filename itself rather than a separate param at every call site,
+    // since every caller already picks the sprite by this same convention.
     static RectTransform CreateTrickBugIcon(Transform parent, string spriteFile, Vector2 pos, float height)
     {
         Texture2D tex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/" + spriteFile);
@@ -4277,6 +4378,7 @@ public static class SceneSetup
         iconGo.transform.SetParent(parent, false);
         RawImage icon = iconGo.AddComponent<RawImage>();
         icon.texture = tex;
+        icon.color = spriteFile.Contains("LadyBug2") ? new Color(0.55f, 0.75f, 1f) : Color.white;
         RectTransform iconRt = iconGo.GetComponent<RectTransform>();
         iconRt.anchorMin = new Vector2(0.5f, 0.5f);
         iconRt.anchorMax = new Vector2(0.5f, 0.5f);

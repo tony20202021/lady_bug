@@ -21,11 +21,11 @@ public class PlayerAnimator : MonoBehaviour
     [SerializeField] private float wingFrameInterval = 0.09f; // flapping reads faster than running legs
     // Animation pace follows CurrentSpeed (min..max km/h) between these two
     // multipliers — distinctly lazier than baseline at the game's minimum
-    // speed, distinctly quicker at its maximum (widened three times now,
+    // speed, distinctly quicker at its maximum (widened four times now,
     // from the original 0.7/1.6, per repeated feedback that the dependency
     // needed to read as stronger still).
-    [SerializeField] private float minAnimSpeedMultiplier = 0.25f;
-    [SerializeField] private float maxAnimSpeedMultiplier = 3.2f;
+    [SerializeField] private float minAnimSpeedMultiplier = 0.15f;
+    [SerializeField] private float maxAnimSpeedMultiplier = 4f;
 
     private Renderer _spriteRenderer;
     private int _frameIndex;

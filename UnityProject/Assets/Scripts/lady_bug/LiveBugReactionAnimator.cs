@@ -21,14 +21,32 @@ public class LiveBugReactionAnimator : MonoBehaviour
     [SerializeField] private Texture2D bugAirTexture1;
     [SerializeField] private Texture2D bugAirTexture2;
 
-    [SerializeField] private float duckSquash = 0.6f;
-    // Smaller than GestureDiagramAnimation's own 220 (the ОБРАЗЕЦ side has
-    // a whole page-width column to itself) — this bug sits closer to its
-    // column's own edge, next to the dashed divider, so the same shift
-    // used to reach across it into the ОБРАЗЕЦ half on a left lean.
-    [SerializeField] private float leanShift = 100f;
+    [SerializeField] private float duckSquash = 0.4f;
+    // 3 explicit X coordinates (one per lane), not a rest+shift formula —
+    // both bugs share the same column and are meant to freely cross into
+    // each other's territory while leaning (per feedback, unlike the real
+    // game's own separate lanes, so this is deliberately NOT symmetric
+    // around each bug's own rest position). Wired per-instance from
+    // SceneSetup.CreateLiveBugPreview.
+    [SerializeField] private float laneXLeft;
+    [SerializeField] private float laneXCenter;
+    [SerializeField] private float laneXRight;
     [SerializeField] private float leanTiltAngle = 12f;
-    [SerializeField] private float flyRise = 50f;
+    // Bigger than GestureDiagramAnimation's own 50 — per feedback the jump
+    // should reach almost all the way up to this column's own top edge.
+    // Bumped back up from 115 — liveBugRestY (SceneSetup) moved down to sit
+    // exactly halfway between top and duck, and this was raised by that
+    // same amount so the top's own on-screen position doesn't move.
+    [SerializeField] private float flyRise = 177.5f;
+    // Duck's squash alone (see duckSquash below) only drops the bug a
+    // little — per feedback ducking should also travel most of the way
+    // down toward the column's own bottom edge, same as jump does toward
+    // the top, not just shrink roughly in place. Added on top of the
+    // squash-driven shift below. Reduced from 180 — liveBugRestY
+    // (SceneSetup) moved down to sit exactly halfway between top and duck,
+    // and this was lowered by that same amount so duck's own on-screen
+    // position doesn't move.
+    [SerializeField] private float duckDrop = 117.5f;
     [SerializeField] private float flapFrameDuration = 0.15f;
     // How fast the pose eases toward whatever's currently held — not an
     // instant snap, same eased feel the real in-game moves have.
@@ -41,8 +59,7 @@ public class LiveBugReactionAnimator : MonoBehaviour
     // -1/0/+1 — real lane changes in the actual game are sticky (you stay
     // in whatever lane you moved to, you don't spring back once you let go
     // of the key/gesture), unlike jump/duck which are momentary. Clamped to
-    // one step either way so it can never wander past this column's own
-    // width into the divider or off the page edge — see leanShift's comment.
+    // one step either way so it can't go past laneXLeft/laneXRight.
     private int _laneIndex;
 
     private bool GestureActive => gestureInput != null && gestureInput.enabled;
@@ -76,7 +93,8 @@ public class LiveBugReactionAnimator : MonoBehaviour
         bool down = !up && DownHeld();
 
         Vector3 targetScale = _restScale;
-        Vector2 targetPos = _restPos + new Vector2(_laneIndex * leanShift, 0f);
+        float laneX = _laneIndex < 0 ? laneXLeft : _laneIndex > 0 ? laneXRight : laneXCenter;
+        Vector2 targetPos = new Vector2(laneX, _restPos.y);
 
         if (up)
         {
@@ -101,10 +119,11 @@ public class LiveBugReactionAnimator : MonoBehaviour
             {
                 targetScale = new Vector3(_restScale.x, _restScale.y * duckSquash, _restScale.z);
                 // Shrink from the bottom, not the center — same reasoning as
-                // GestureDiagramAnimation's own duck squash.
+                // GestureDiagramAnimation's own duck squash — then drop the
+                // whole squashed shape down further still (duckDrop).
                 float fullHeight = bugImage.rectTransform.sizeDelta.y * _restScale.y;
                 float squashedHeight = bugImage.rectTransform.sizeDelta.y * targetScale.y;
-                targetPos += new Vector2(0f, -(fullHeight - squashedHeight) / 2f);
+                targetPos += new Vector2(0f, -(fullHeight - squashedHeight) / 2f - duckDrop);
             }
         }
 
