@@ -39,11 +39,17 @@ public class RingTrickAnimation : MonoBehaviour
     [SerializeField] private float holdCrossed = 0.8f;
     [SerializeField] private float holdSuccess = 1.6f;
     [SerializeField] private float holdAfterSuccess = 0.8f;
+    // "ТРЮК ВЫПОЛНЕН +1" blinks a few times before settling into its
+    // holdSuccess steady-on window, instead of just snapping on — reads as
+    // a much stronger "you did it" cue than a flat toggle.
+    [SerializeField] private int successBlinkCount = 3;
+    [SerializeField] private float successBlinkInterval = 0.12f;
 
     // One full loop's length — StartScreenController's carousel reads this
     // so it doesn't cut the animation off mid-cycle.
     public float CycleDuration =>
-        holdNeutral + riseDuration + holdBetweenBeats + crossDuration + holdBetweenBeats + riseDuration + holdCrossed + holdSuccess + holdAfterSuccess;
+        holdNeutral + riseDuration + holdBetweenBeats + crossDuration + holdBetweenBeats + riseDuration + holdCrossed
+        + successBlinkCount * 2f * successBlinkInterval + holdSuccess + holdAfterSuccess;
 
     // StartScreenController's carousel shows every trick instruction page
     // for exactly this many full loops before advancing.
@@ -113,14 +119,25 @@ public class RingTrickAnimation : MonoBehaviour
             yield return new WaitForSeconds(holdCrossed);
 
             if (successText != null)
-                successText.SetActive(true);
-            yield return new WaitForSeconds(holdSuccess);
-            if (successText != null)
-                successText.SetActive(false);
+                yield return BlinkSuccessText();
 
             ResetVisuals();
             yield return new WaitForSeconds(holdAfterSuccess);
         }
+    }
+
+    private IEnumerator BlinkSuccessText()
+    {
+        for (int i = 0; i < successBlinkCount; i++)
+        {
+            successText.SetActive(true);
+            yield return new WaitForSeconds(successBlinkInterval);
+            successText.SetActive(false);
+            yield return new WaitForSeconds(successBlinkInterval);
+        }
+        successText.SetActive(true);
+        yield return new WaitForSeconds(holdSuccess);
+        successText.SetActive(false);
     }
 
     private void ShowArrow(RectTransform arrow, string glyph, Vector2 bugPos)

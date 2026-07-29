@@ -636,15 +636,15 @@ public class WinSequence : MonoBehaviour
         }
     }
 
-    // The actual player-facing control keys (PlayerController's arrow keys,
-    // GestureInput's WASD stand-ins, Space/Return for start/confirm) — NOT
+    // The actual player-facing control keys (player-right's own IJKL,
+    // player-left's own WASD, Space/Return for start/confirm) — NOT
     // Input.anyKeyDown, which used to fire on literally any key including
     // OS-level shortcuts (e.g. a screenshot key combo) that have nothing to
     // do with the game, skipping the whole recap by accident. F1/Q (help
     // panel toggle) are deliberately excluded too, same reasoning.
     private static readonly KeyCode[] SkipKeys =
     {
-        KeyCode.LeftArrow, KeyCode.RightArrow, KeyCode.UpArrow, KeyCode.DownArrow,
+        KeyCode.I, KeyCode.J, KeyCode.K, KeyCode.L,
         KeyCode.W, KeyCode.A, KeyCode.S, KeyCode.D,
         KeyCode.Space, KeyCode.Return,
     };

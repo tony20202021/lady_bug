@@ -19,6 +19,12 @@ public class PauseController : MonoBehaviour
 
     private bool _dialogOpen;
     private bool _confirmYes;
+    // Both players' gesture/joystick rigs, whichever scheme each one has
+    // enabled — grabbed fresh each time the dialog opens so left/right
+    // toggling and confirm respond to EITHER player's own lean-sideways/
+    // jump gesture, not just one hardcoded scheme or player.
+    private GestureInput[] _gestureInputs;
+    private JoystickInput[] _joystickInputs;
 
     public bool IsDialogOpen => _dialogOpen;
 
@@ -39,6 +45,8 @@ public class PauseController : MonoBehaviour
     {
         _dialogOpen = true;
         _confirmYes = false;
+        _gestureInputs = FindObjectsOfType<GestureInput>();
+        _joystickInputs = FindObjectsOfType<JoystickInput>();
 
         if (SpeedController.Instance != null)
             SpeedController.Instance.SetPaused(true);
@@ -58,6 +66,30 @@ public class PauseController : MonoBehaviour
         bool left = Input.GetKeyDown(KeyCode.LeftArrow) || Input.GetKeyDown(KeyCode.A);
         bool right = Input.GetKeyDown(KeyCode.RightArrow) || Input.GetKeyDown(KeyCode.D);
         bool confirm = Input.GetKeyDown(KeyCode.Space) || Input.GetKeyDown(KeyCode.Return);
+
+        if (_gestureInputs != null)
+        {
+            foreach (GestureInput g in _gestureInputs)
+            {
+                if (g == null || !g.enabled)
+                    continue;
+                left |= g.LeanLeftDown;
+                right |= g.LeanRightDown;
+                confirm |= g.JumpDown;
+            }
+        }
+
+        if (_joystickInputs != null)
+        {
+            foreach (JoystickInput j in _joystickInputs)
+            {
+                if (j == null || !j.enabled)
+                    continue;
+                left |= j.LeftDown;
+                right |= j.RightDown;
+                confirm |= j.UpDown;
+            }
+        }
 
         if (left || right)
         {

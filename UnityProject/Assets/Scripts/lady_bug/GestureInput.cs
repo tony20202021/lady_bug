@@ -60,12 +60,14 @@ public class GestureInput : MonoBehaviour
     // Which half of the board (see ArduinoFirmware/GestureSensors) this
     // player reads — inferred from the GameObject name set in
     // SceneSetup.CreatePlayer ("PlayerRight"/"PlayerLeft") so no extra wiring
-    // is needed there.
+    // is needed there. Player 1 (distance sensors) is player-left now, not
+    // player-right — see joystickRight's own comment in
+    // StartScreenController for the left/right swap this reflects.
     private bool _isPlayerOne;
 
     private void Awake()
     {
-        _isPlayerOne = gameObject.name.Contains("Right");
+        _isPlayerOne = gameObject.name.Contains("Left");
     }
 
     private HandState _leftHand;

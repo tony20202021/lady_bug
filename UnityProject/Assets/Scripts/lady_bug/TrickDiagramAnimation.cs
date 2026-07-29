@@ -68,11 +68,17 @@ public class TrickDiagramAnimation : MonoBehaviour
     public float duckSquash = 0.6f;
     public float holdSuccess = 1.2f;
     public float holdAfterSuccess = 0.6f;
+    // "ТРЮК ВЫПОЛНЕН +1" blinks a few times before settling into its
+    // holdSuccess steady-on window, instead of just snapping on — reads as
+    // a much stronger "you did it" cue than a flat toggle.
+    public int successBlinkCount = 3;
+    public float successBlinkInterval = 0.12f;
 
     // One full loop's length — StartScreenController's carousel reads this
     // so it doesn't cut the animation off mid-cycle, same idea as
     // ArchTrickAnimation.CycleDuration.
-    public float CycleDuration => Mathf.Max(PathDuration(pathA), staggerDelay + PathDuration(pathB)) + holdSuccess + holdAfterSuccess;
+    public float CycleDuration => Mathf.Max(PathDuration(pathA), staggerDelay + PathDuration(pathB))
+        + successBlinkCount * 2f * successBlinkInterval + holdSuccess + holdAfterSuccess;
 
     // StartScreenController's carousel shows every trick instruction page
     // for exactly this many full loops before advancing.
@@ -164,14 +170,25 @@ public class TrickDiagramAnimation : MonoBehaviour
             yield return b;
 
             if (successText != null)
-                successText.SetActive(true);
-            yield return new WaitForSeconds(holdSuccess);
-            if (successText != null)
-                successText.SetActive(false);
+                yield return BlinkSuccessText();
 
             ResetVisuals();
             yield return new WaitForSeconds(holdAfterSuccess);
         }
+    }
+
+    private IEnumerator BlinkSuccessText()
+    {
+        for (int i = 0; i < successBlinkCount; i++)
+        {
+            successText.SetActive(true);
+            yield return new WaitForSeconds(successBlinkInterval);
+            successText.SetActive(false);
+            yield return new WaitForSeconds(successBlinkInterval);
+        }
+        successText.SetActive(true);
+        yield return new WaitForSeconds(holdSuccess);
+        successText.SetActive(false);
     }
 
     private IEnumerator RunCounter()

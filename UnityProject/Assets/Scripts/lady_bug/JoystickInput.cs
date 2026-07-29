@@ -1,19 +1,20 @@
 using UnityEngine;
 
-// Reads player 2's physical arcade joystick (4 digital microswitches —
-// up/down/left/right, see ArduinoFirmware/Joystick) over serial via
-// JoystickSerial and turns it into the same held/just-pressed signal shape
-// PlayerController normally reads from keys: up = jump, down = duck,
-// left/right = lane change — the same mapping the keyboard already uses.
-// Unlike GestureInput's two-hand distance sensors (which need to interpret
-// a continuous reading into a gesture, e.g. flapping for jump), a
-// joystick's 4 directions already ARE discrete button presses, so no
-// interpretation step is needed here at all.
+// Reads player 2's physical joystick (2-axis analog stick, thresholded into
+// 4 directions by the firmware itself — see ArduinoFirmware/Joystick) over
+// serial via JoystickSerial and turns it into the same held/just-pressed
+// signal shape PlayerController normally reads from keys: up = jump,
+// down = duck, left/right = lane change — the same mapping the keyboard
+// already uses. Unlike GestureInput's two-hand distance sensors (which need
+// to interpret a continuous reading into a gesture, e.g. flapping for
+// jump), the firmware already reduces the joystick to discrete button-style
+// directions, so no interpretation step is needed here at all.
 //
 // Disabled by default (see SceneSetup.CreatePlayer) — enabled at runtime by
-// StartScreenController only for player 2 (left) when "Датчики" is the
+// StartScreenController only for player 2 (right) when "Датчики" is the
 // chosen controller, where it stands in for player 2's own gesture reading
-// (player 1/right still reads real hand sensors as before).
+// (player 1/left still reads real hand sensors, see joystickRight's own
+// comment in StartScreenController for the left/right swap this reflects).
 public class JoystickInput : MonoBehaviour
 {
     public bool UpHeld { get; private set; }

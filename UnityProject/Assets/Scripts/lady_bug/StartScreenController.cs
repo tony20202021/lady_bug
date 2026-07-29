@@ -41,7 +41,13 @@ public class StartScreenController : MonoBehaviour
     // straight back to this menu).
     [SerializeField] private GameObject trainingCanvasRoot;
     [SerializeField] private Text trainingExitCountdownText;
-    private const float TrainingExitHoldDuration = 5f;
+    // Same 2-phase feel as DuckToExitController's own real-game exit —
+    // first TrainingExitSilentPhase seconds show nothing at all, then a
+    // visible 5,4,3,2,1 countdown for TrainingExitCountdownPhase more,
+    // per feedback (was one flat 5s hold with the countdown visible the
+    // whole time).
+    private const float TrainingExitSilentPhase = 5f;
+    private const float TrainingExitCountdownPhase = 5f;
     private float _trainingHoldTimer;
 
     // ТРЕНИРОВКА now leads here first — the same trick-instruction pages
@@ -49,11 +55,12 @@ public class StartScreenController : MonoBehaviour
     // them whether they cared or not), moved so only someone who actually
     // picked training sees them. Confirm (same key as the main menu) moves
     // on into the live practice screen above; holding down does the same
-    // 5-second exit the live screen itself uses, but takes you all the way
+    // 2-phase exit the live screen itself uses, but takes you all the way
     // back to the main menu instead.
     [SerializeField] private GameObject trickCarouselCanvasRoot;
     [SerializeField] private GameObject[] trickCarouselPages;
     [SerializeField] private GameObject trickCarouselBackground;
+    [SerializeField] private Text trickCarouselExitCountdownText;
     private int _lastTrickPage = -1;
     private float _trickPageDwellElapsed;
     private float _trickExitHoldTimer;
@@ -72,11 +79,15 @@ public class StartScreenController : MonoBehaviour
     [SerializeField] private GestureInput gestureRight;
     [SerializeField] private GestureInput gestureLeft;
 
-    // "Датчики" now means an asymmetric pair, not two sets of hand sensors:
-    // player 1 (right) reads real hand-distance sensors as before, player 2
-    // (left) reads their own physical joystick board instead — see
-    // JoystickInput/JoystickSerial and ArduinoFirmware/Joystick.
+    // "Датчики" means an asymmetric pair, not two sets of hand sensors:
+    // player 1 (left) reads real hand-distance sensors, player 2 (right)
+    // reads their own physical joystick board instead — see
+    // JoystickInput/JoystickSerial and ArduinoFirmware/Joystick. Was the
+    // other way around (sensors on the right, joystick on the left) — per
+    // feedback, swapped to match the actual physical rig layout being
+    // built (sensors on the left, joystick on the right).
     [SerializeField] private JoystickInput joystickLeft;
+    [SerializeField] private JoystickInput joystickRight;
 
     // Per-player КЛАВИШИ/ЖЕСТЫ gameplay HUD (CreateGesturePanel) — hidden
     // while this menu is up (they're feedback for actual play, not menu
@@ -157,15 +168,16 @@ public class StartScreenController : MonoBehaviour
 
         RestoreMenuGestureMode();
 
-        // Not started here anymore — Awake runs the instant the scene
-        // loads, while the flower-fill/countdown intro screen is still
-        // covering this menu, so playing it here meant music was already
-        // running underneath a screen that's supposed to be silent. Started
-        // by IntroSequence.Finish() instead, once that screen actually goes
-        // away. PlayMusic() below is what it calls.
-
         UpdateVisuals();
         UpdateCarousel();
+
+        // Loader/intro (LoaderScreenController, IntroSequence) are skipped
+        // for now (see SceneSetup's own comment on why) — nothing else is
+        // ever going to call PlayMusic()/OnRevealed() for us, so this menu
+        // has to do it itself, immediately, instead of waiting on a reveal
+        // event from a screen that no longer runs.
+        PlayMusic();
+        OnRevealed();
     }
 
     // Called by IntroSequence once the flower-fill/countdown screen
@@ -275,14 +287,15 @@ public class StartScreenController : MonoBehaviour
     }
 
     // Duck-held (real gesture or the same Down/S keys the menu itself
-    // reads) for TrainingExitHoldDuration — mirrors DuckToExitController's
-    // hold-to-confirm feel, just without its confirm dialog: this screen
-    // has nothing on it to lose, so holding down just takes you straight
-    // back to the menu.
+    // reads) for TrainingExitSilentPhase + TrainingExitCountdownPhase —
+    // mirrors DuckToExitController's own 2-phase hold-to-confirm feel
+    // exactly (silent first, then a visible countdown), just without its
+    // confirm dialog: this screen has nothing on it to lose, so holding
+    // down all the way just takes you straight back to the menu.
     private void UpdateTrainingScreen()
     {
-        bool holding = Input.GetKey(KeyCode.DownArrow) || Input.GetKey(KeyCode.S)
-            || IsDuckHeld(gestureRight) || IsDuckHeld(gestureLeft);
+        bool holding = Input.GetKey(KeyCode.K) || Input.GetKey(KeyCode.S)
+            || IsDuckHeld(gestureRight) || IsDuckHeld(gestureLeft) || IsDuckHeld(joystickRight) || IsDuckHeld(joystickLeft);
 
         if (!holding)
         {
@@ -294,14 +307,22 @@ public class StartScreenController : MonoBehaviour
 
         _trainingHoldTimer += Time.deltaTime;
 
-        if (trainingExitCountdownText != null)
+        if (_trainingHoldTimer < TrainingExitSilentPhase)
         {
-            trainingExitCountdownText.gameObject.SetActive(true);
-            int secondsLeft = Mathf.Clamp(Mathf.CeilToInt(TrainingExitHoldDuration - _trainingHoldTimer), 1, Mathf.CeilToInt(TrainingExitHoldDuration));
-            trainingExitCountdownText.text = secondsLeft.ToString();
+            if (trainingExitCountdownText != null)
+                trainingExitCountdownText.gameObject.SetActive(false);
+        }
+        else if (_trainingHoldTimer < TrainingExitSilentPhase + TrainingExitCountdownPhase)
+        {
+            if (trainingExitCountdownText != null)
+            {
+                trainingExitCountdownText.gameObject.SetActive(true);
+                int secondsLeft = Mathf.CeilToInt(TrainingExitSilentPhase + TrainingExitCountdownPhase - _trainingHoldTimer);
+                trainingExitCountdownText.text = secondsLeft.ToString();
+            }
         }
 
-        if (_trainingHoldTimer >= TrainingExitHoldDuration)
+        if (_trainingHoldTimer >= TrainingExitSilentPhase + TrainingExitCountdownPhase)
         {
             _trainingHoldTimer = 0f;
             ExitTraining();
@@ -334,10 +355,10 @@ public class StartScreenController : MonoBehaviour
         {
             if (_selectedController == 1)
             {
-                // "Датчики" for player 2 means their own joystick board, not
-                // a second pair of hand sensors — see joystickLeft's comment.
-                SetGestureEnabled(gestureLeft, false, false);
-                SetJoystickEnabled(joystickLeft, true);
+                // Real hardware: player 1 (left) reads distance sensors —
+                // see joystickRight's own comment for player 2's side.
+                SetGestureEnabled(gestureLeft, true, true);
+                SetJoystickEnabled(joystickLeft, false);
             }
             else
             {
@@ -345,7 +366,21 @@ public class StartScreenController : MonoBehaviour
                 SetJoystickEnabled(joystickLeft, false);
             }
         }
-        SetGestureEnabled(gestureRight, gestureActive, useRealSensors);
+        if (_selectedController == 1 && _selectedPlayers == 2)
+        {
+            // "Датчики" for player 2 means their own joystick board, not a
+            // second pair of hand sensors — see joystickRight's comment.
+            // Only in 2-player mode: solo play has no partner to hand the
+            // sensors to, so it keeps using them itself (same as before the
+            // left/right swap) instead of switching to an unplugged joystick.
+            SetGestureEnabled(gestureRight, false, false);
+            SetJoystickEnabled(joystickRight, true);
+        }
+        else
+        {
+            SetGestureEnabled(gestureRight, gestureActive, useRealSensors);
+            SetJoystickEnabled(joystickRight, false);
+        }
 
         // Trick-instruction carousel first, not the live screen directly —
         // see trickCarouselCanvasRoot's own comment.
@@ -372,22 +407,42 @@ public class StartScreenController : MonoBehaviour
             return;
         }
 
-        bool holding = Input.GetKey(KeyCode.DownArrow) || Input.GetKey(KeyCode.S)
-            || IsDuckHeld(gestureRight) || IsDuckHeld(gestureLeft);
+        bool holding = Input.GetKey(KeyCode.K) || Input.GetKey(KeyCode.S)
+            || IsDuckHeld(gestureRight) || IsDuckHeld(gestureLeft) || IsDuckHeld(joystickRight) || IsDuckHeld(joystickLeft);
 
-        // No on-screen countdown reaction for this anymore — per feedback,
-        // just the gestures/buttons and their own effect on the live bugs,
-        // nothing else. The hold-to-exit itself still works silently.
+        // Same 2-phase feel as the live screen's own UpdateTrainingScreen —
+        // silent first, then a visible countdown — per feedback there was
+        // no on-screen indication at all that the hold-to-exit even existed.
         if (!holding)
         {
             _trickExitHoldTimer = 0f;
+            if (trickCarouselExitCountdownText != null)
+                trickCarouselExitCountdownText.gameObject.SetActive(false);
             return;
         }
 
         _trickExitHoldTimer += Time.deltaTime;
-        if (_trickExitHoldTimer >= TrainingExitHoldDuration)
+
+        if (_trickExitHoldTimer < TrainingExitSilentPhase)
+        {
+            if (trickCarouselExitCountdownText != null)
+                trickCarouselExitCountdownText.gameObject.SetActive(false);
+        }
+        else if (_trickExitHoldTimer < TrainingExitSilentPhase + TrainingExitCountdownPhase)
+        {
+            if (trickCarouselExitCountdownText != null)
+            {
+                trickCarouselExitCountdownText.gameObject.SetActive(true);
+                int secondsLeft = Mathf.CeilToInt(TrainingExitSilentPhase + TrainingExitCountdownPhase - _trickExitHoldTimer);
+                trickCarouselExitCountdownText.text = secondsLeft.ToString();
+            }
+        }
+
+        if (_trickExitHoldTimer >= TrainingExitSilentPhase + TrainingExitCountdownPhase)
         {
             _trickExitHoldTimer = 0f;
+            if (trickCarouselExitCountdownText != null)
+                trickCarouselExitCountdownText.gameObject.SetActive(false);
             ExitTrickCarouselToMenu();
         }
     }
@@ -515,10 +570,10 @@ public class StartScreenController : MonoBehaviour
                 return;
             }
 
-            // Player 2's board is separate hardware (see joystickLeft) — only
-            // needed in 2-player mode, and checked on its own so a missing
-            // joystick doesn't get misreported as the (already-connected)
-            // hand-sensor board being the problem.
+            // Player 2's board is separate hardware (see joystickRight) —
+            // only needed in 2-player mode, and checked on its own so a
+            // missing joystick doesn't get misreported as the (already-
+            // connected) hand-sensor board being the problem.
             if (_selectedPlayers == 2)
             {
                 bool joystickConnected = JoystickSerial.Instance != null && JoystickSerial.Instance.IsConnected;
@@ -545,10 +600,10 @@ public class StartScreenController : MonoBehaviour
 
             if (_selectedController == 1)
             {
-                // "Датчики" for player 2 means their own joystick board, not
-                // a second pair of hand sensors — see joystickLeft's comment.
-                SetGestureEnabled(gestureLeft, false, false);
-                SetJoystickEnabled(joystickLeft, true);
+                // Real hardware: player 1 (left) reads distance sensors —
+                // see joystickRight's own comment for player 2's side.
+                SetGestureEnabled(gestureLeft, true, true);
+                SetJoystickEnabled(joystickLeft, false);
             }
             else
             {
@@ -558,7 +613,21 @@ public class StartScreenController : MonoBehaviour
         }
 
         SetPlayerControlEnabled(playerRight, true);
-        SetGestureEnabled(gestureRight, gestureActive, useRealSensors);
+        if (_selectedController == 1 && _selectedPlayers == 2)
+        {
+            // "Датчики" for player 2 means their own joystick board, not a
+            // second pair of hand sensors — see joystickRight's comment.
+            // Only in 2-player mode: solo play has no partner to hand the
+            // sensors to, so it keeps using them itself (same as before the
+            // left/right swap) instead of switching to an unplugged joystick.
+            SetGestureEnabled(gestureRight, false, false);
+            SetJoystickEnabled(joystickRight, true);
+        }
+        else
+        {
+            SetGestureEnabled(gestureRight, gestureActive, useRealSensors);
+            SetJoystickEnabled(joystickRight, false);
+        }
 
         // The gesture HUD was hidden for the menu (see Awake) — back on now
         // that the run itself is starting.
@@ -774,6 +843,11 @@ public class StartScreenController : MonoBehaviour
     private static bool IsLeanRightDown(GestureInput gesture) => gesture != null && gesture.enabled && gesture.LeanRightDown;
     private static bool IsJumpDown(GestureInput gesture) => gesture != null && gesture.enabled && gesture.JumpDown;
     private static bool IsDuckHeld(GestureInput gesture) => gesture != null && gesture.enabled && gesture.DuckHeld;
+    // A real joystick (player-right's own hardware now, see joystickRight)
+    // needs the same hold-to-exit path gesture already has — without this a
+    // joystick-only player (no keyboard fallback in hand) would have no way
+    // to back out of training at all.
+    private static bool IsDuckHeld(JoystickInput joystick) => joystick != null && joystick.enabled && joystick.DownHeld;
 
     // "Both hands up, held" doesn't mean anything during actual play (only
     // the flapping motion does, to avoid an accidental jump from just

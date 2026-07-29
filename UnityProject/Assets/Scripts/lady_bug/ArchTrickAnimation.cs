@@ -25,6 +25,11 @@ public class ArchTrickAnimation : MonoBehaviour
     [SerializeField] private float archDuration = 2.3f;
     [SerializeField] private float holdSuccess = 1.6f;
     [SerializeField] private float holdAfterSuccess = 0.8f;
+    // "ТРЮК ВЫПОЛНЕН +1" blinks a few times before settling into its
+    // holdSuccess steady-on window, instead of just snapping on — reads as
+    // a much stronger "you did it" cue than a flat toggle.
+    [SerializeField] private int successBlinkCount = 3;
+    [SerializeField] private float successBlinkInterval = 0.12f;
     [SerializeField] private float duckOffset = 40f;
     [SerializeField] private float jumpOffset = 40f;
     [SerializeField] private float archMinHeight = 30f;
@@ -66,7 +71,8 @@ public class ArchTrickAnimation : MonoBehaviour
     // so it doesn't cut the animation off mid-cycle (was a fixed 4s
     // interval regardless of what was actually playing).
     public float CycleDuration =>
-        holdNeutral + holdArrows + reactDuration + holdBetweenReacts + holdArrows + reactDuration + holdReacted + archDuration + holdSuccess + holdAfterSuccess;
+        holdNeutral + holdArrows + reactDuration + holdBetweenReacts + holdArrows + reactDuration + holdReacted + archDuration
+        + successBlinkCount * 2f * successBlinkInterval + holdSuccess + holdAfterSuccess;
 
     // StartScreenController's carousel shows every trick instruction page
     // for exactly this many full loops before advancing — same idea as
@@ -180,13 +186,24 @@ public class ArchTrickAnimation : MonoBehaviour
             }
 
             if (successText != null)
-                successText.SetActive(true);
-            yield return new WaitForSeconds(holdSuccess);
-            if (successText != null)
-                successText.SetActive(false);
+                yield return BlinkSuccessText();
 
             yield return new WaitForSeconds(holdAfterSuccess);
         }
+    }
+
+    private IEnumerator BlinkSuccessText()
+    {
+        for (int i = 0; i < successBlinkCount; i++)
+        {
+            successText.SetActive(true);
+            yield return new WaitForSeconds(successBlinkInterval);
+            successText.SetActive(false);
+            yield return new WaitForSeconds(successBlinkInterval);
+        }
+        successText.SetActive(true);
+        yield return new WaitForSeconds(holdSuccess);
+        successText.SetActive(false);
     }
 
     // Bottom bug ducks (settles lower, squashes vertically) — the down

@@ -65,20 +65,45 @@ public static class SceneSetup
         CreatePlayerPhotoCapture();
 
         // Two players sharing one road/score/speed — co-op, not split-screen.
-        // Right player: arrows for lane/jump/duck. Left player: WASD for
-        // lane/jump/duck. No accel/brake keys anymore — the road always
-        // accelerates on its own (SpeedController) and braking was removed
-        // from every control scheme entirely.
+        // Right player: IJKL for lane/jump/duck (its own joystick's
+        // keyboard fallback). Left player: WASD for lane/jump/duck (its own
+        // distance-sensor's keyboard fallback). No accel/brake keys
+        // anymore — the road always accelerates on its own (SpeedController)
+        // and braking was removed from every control scheme entirely.
         // Each also gets a gesture-sensor simulator (disabled by default): 2
         // distance sensors per player (left hand, right hand), 2 keys each
         // (up/down) — the up key doubles as the flap key (rapid taps =
         // jump), matching the on-screen square grid in CreateGesturePanel:
         // Right player:  U O       Left player:   Q E
         //                J L                       A D
-        GameObject playerRight = CreatePlayer("PlayerRight", KeyCode.LeftArrow, KeyCode.RightArrow, KeyCode.UpArrow, KeyCode.DownArrow,
-            KeyCode.U, KeyCode.J, KeyCode.O, KeyCode.L, LaneCount - 1, Color.white, "LadyBug1.png");
+        //
+        // Start lanes sit as close to the road's own true center as
+        // possible instead of the outer edges — per feedback, the 2 lanes
+        // closest to center (even LaneCount: directly adjacent, e.g. 1&2
+        // of 0..3; odd LaneCount: flanking the exact middle lane, e.g. 0&2
+        // of 0..2, skipping the middle one). For LaneCount==3 this lands on
+        // the same lanes the old hardcoded "outermost" start already used,
+        // so behavior only actually changes once LaneCount > 3.
+        int startLaneRight, startLaneLeft;
+        if (LaneCount % 2 == 0)
+        {
+            startLaneRight = LaneCount / 2;
+            startLaneLeft = startLaneRight - 1;
+        }
+        else
+        {
+            int midLane = LaneCount / 2;
+            startLaneRight = midLane + 1;
+            startLaneLeft = midLane - 1;
+        }
+        // IJKL, not arrows — per feedback, player-right is now the joystick
+        // player (see StartScreenController's joystickRight), and this is
+        // its keyboard-only fallback; IJKL sits on the keyboard's own right
+        // side, same relative hand position WASD gives player-left.
+        GameObject playerRight = CreatePlayer("PlayerRight", KeyCode.J, KeyCode.L, KeyCode.I, KeyCode.K,
+            KeyCode.U, KeyCode.J, KeyCode.O, KeyCode.L, startLaneRight, Color.white, "LadyBug1.png");
         GameObject playerLeft = CreatePlayer("PlayerLeft", KeyCode.A, KeyCode.D, KeyCode.W, KeyCode.S,
-            KeyCode.Q, KeyCode.A, KeyCode.E, KeyCode.D, 0, new Color(0.55f, 0.75f, 1f), "LadyBug2.png");
+            KeyCode.Q, KeyCode.A, KeyCode.E, KeyCode.D, startLaneLeft, new Color(0.55f, 0.75f, 1f), "LadyBug2.png");
 
         CreateCamera(playerRight.transform);
         CreateRoad();
@@ -97,8 +122,19 @@ public static class SceneSetup
         CreateStartScreen(playerRight, playerLeft, gestureCanvasLeft, gestureCanvasRight);
         CreatePauseDialog();
         CreateExitGesture();
-        IntroSequence[] gameIntros = CreateAllIntroScreens();
-        CreateLoaderScreen(gameIntros);
+        // Loader (attract-mode controller-select) + flower-fill/countdown
+        // intro skipped for now, per feedback — boot straight into the
+        // button-selection menu instead of clicking through both every
+        // single test run. StartScreenCanvas has sat ready underneath them
+        // the whole time regardless (see IntroSequence's own class comment),
+        // so skipping these two just means nothing ever covers it — see
+        // StartScreenController.Awake's own PlayMusic()/OnRevealed() calls,
+        // added to replace what IntroSequence.Finish() used to trigger.
+        // CreateLoaderScreen/CreateAllIntroScreens (below) are left intact,
+        // not deleted — the real cabinet build still needs this real-
+        // controller-hold flow, this is a dev-time skip only.
+        // IntroSequence[] gameIntros = CreateAllIntroScreens();
+        // CreateLoaderScreen(gameIntros);
         CreateScreenInfoLabel();
 
         System.IO.Directory.CreateDirectory("Assets/Scenes");
@@ -320,7 +356,7 @@ public static class SceneSetup
         gestureSo.ApplyModifiedPropertiesWithoutUndo();
         gesture.enabled = false;
 
-        // Joystick input — only ever driven for player 2 (left), see
+        // Joystick input — only ever driven for player 2 (right), see
         // StartScreenController's "Датчики" handling, but added uniformly to
         // both players like GestureInput above for the same reason: keeps
         // this shared constructor simple, and an unused disabled component
@@ -1639,9 +1675,12 @@ public static class SceneSetup
         // Right-corner counterpart to the left-corner gear+speed hub — same
         // standalone dial shape (quarter-sector badge + arc of tick dots,
         // no wedge background/seam of its own, sitting between ОЧКИ and
-        // ТРЮКИ), just empty for now — reserved for a future indicator, per
-        // feedback, not tied to any data yet. Same nested-quarter-sector
-        // badge shape as the left corner's own.
+        // ТРЮКИ). Same nested-quarter-sector badge shape as the left
+        // corner's own, but driven by object pickups (ObjectFeedbackIndicator)
+        // instead of live speed telemetry — a happy/sad face in the center
+        // badge, and the tick arc itself fills/drains per pickup. Colors run
+        // red (bottom) to green (top) — the reverse of the left hub's own
+        // green-to-red — per feedback.
         var emptyHubGo = new GameObject("RightHubPlaceholder");
         emptyHubGo.transform.SetParent(canvasGo.transform, false);
         Texture2D rightHubWedgeTexture = CreateWedgeTexture(400, RightWedgeAngle * 2f, false, true, false);
@@ -1650,9 +1689,36 @@ public static class SceneSetup
         RectTransform emptyHubRt = emptyHubGo.GetComponent<RectTransform>();
         PositionWedgePanel(emptyHubRt, true, RightWedgeAngle, gearHubWedgeRadius, (float)rightHubWedgeTexture.height / rightHubWedgeTexture.width);
 
-        CreateTickRing(emptyHubGo.transform, true, 10, speedTickRadius, RightWedgeAngle - 4f);
+        RectTransform faceContentRt = CreateWedgeContent(emptyHubGo.transform, true, 0f, gearHubWedgeRadius * 0.6f, 115f, 115f);
+        var faceGo = new GameObject("FeedbackFace");
+        faceGo.transform.SetParent(faceContentRt, false);
+        Text faceText = faceGo.AddComponent<Text>();
+        faceText.font = GameFont;
+        faceText.fontSize = 56;
+        faceText.fontStyle = FontStyle.Bold;
+        faceText.alignment = TextAnchor.MiddleCenter;
+        faceText.color = Color.white;
+        faceGo.AddComponent<Outline>().effectColor = Color.black;
+        RectTransform faceRt = faceText.GetComponent<RectTransform>();
+        faceRt.anchorMin = Vector2.zero;
+        faceRt.anchorMax = Vector2.one;
+        faceRt.offsetMin = Vector2.zero;
+        faceRt.offsetMax = Vector2.zero;
+        faceGo.SetActive(false);
+
+        Image[] feedbackTicks = CreateTickRing(emptyHubGo.transform, true, 10, speedTickRadius, RightWedgeAngle - 4f);
         CreateArcGuide(emptyHubGo.transform, true, speedTickRadius - 30f, RightWedgeAngle - 4f, speedArcGuideColor);
         CreateArcGuide(emptyHubGo.transform, true, speedTickRadius + 30f, RightWedgeAngle - 4f, speedArcGuideColor);
+
+        var feedbackGo = new GameObject("ObjectFeedbackIndicator");
+        ObjectFeedbackIndicator feedbackIndicator = feedbackGo.AddComponent<ObjectFeedbackIndicator>();
+        SerializedObject feedbackSo = new SerializedObject(feedbackIndicator);
+        feedbackSo.FindProperty("faceText").objectReferenceValue = faceText;
+        SerializedProperty feedbackTicksProp = feedbackSo.FindProperty("ticks");
+        feedbackTicksProp.arraySize = feedbackTicks.Length;
+        for (int i = 0; i < feedbackTicks.Length; i++)
+            feedbackTicksProp.GetArrayElementAtIndex(i).objectReferenceValue = feedbackTicks[i];
+        feedbackSo.ApplyModifiedPropertiesWithoutUndo();
     }
 
     // One checkbox+text row for the post-win recap's stats pages — same
@@ -1921,10 +1987,11 @@ public static class SceneSetup
         var statsRowRoots = new GameObject[statsRowCount];
         for (int i = 0; i < statsRowCount; i++)
         {
-            // 60, not 45 — CreateWinCheckRow's own checkSize is 56, so 45
+            // 70, not 45 — CreateWinCheckRow's own checkSize is 56, so 45
             // had adjacent rows overlapping by 11px regardless of their
-            // text content. 60 clears that with a small real gap.
-            float y = 20f - i * 60f;
+            // text content. Widened again (was 60) per feedback the rows
+            // still read as too tight.
+            float y = 20f - i * 70f;
             statsRows[i] = CreateWinCheckRow(scoreCanvas.transform, new Vector2(0f, y), 1000f, 36, out statsRowRoots[i]);
         }
 
@@ -2152,7 +2219,7 @@ public static class SceneSetup
         PositionWedgePanel(panelRt, true, tricksAngle, FanRadius);
 
         RectTransform tricksContentRt = CreateWedgeContent(panelGo.transform, true, 0f, WedgeContentRadius, rightContentWidth, 207f);
-        NudgeContentScreenSpace(tricksContentRt, panelGo.transform, new Vector2(0f, -36f)); // lower still, per repeated feedback
+        NudgeContentScreenSpace(tricksContentRt, panelGo.transform, new Vector2(0f, -55f)); // lower still again, per repeated feedback
 
         CreatePanelLabel(tricksContentRt, "ТРЮКИ"); // back to the shared default color, per feedback all 4 panel labels should match
 
@@ -2607,19 +2674,18 @@ public static class SceneSetup
 
         var carouselPages = new System.Collections.Generic.List<GameObject>
         {
-            // ЦЕЛЬ first — page[0] is what's actually visible the instant
-            // the start screen appears (see the SetActive loop below), and
-            // per feedback it should always be this one specifically, not
-            // just "some instructions page" — a leaderboard table means
-            // nothing yet to someone who hasn't been told what they're
-            // even looking at. Leaderboards used to lead the carousel;
-            // moved later, right after these two.
-            goalPage.page,
-
+            // СУТЬ ИГРЫ first — page[0] is what's actually visible the
+            // instant the start screen appears (see the SetActive loop
+            // below); per feedback this should lead (what the game even
+            // is), with ЦЕЛЬ (the actual win condition) right after it —
+            // was the other way around. Leaderboards still come later,
+            // after both of these.
             CreateChecklistPage(carouselRt, "СУТЬ ИГРЫ",
                 "собирать хорошие объекты",
                 "избегать плохие объекты",
                 "выполнять трюки вдвоём").page,
+
+            goalPage.page,
 
             CreateObjectGridPage(carouselRt, "ХОРОШИЕ ОБЪЕКТЫ", new Color(0.4f, 1f, 0.5f), GoodObjectNames),
             CreateObjectGridPage(carouselRt, "ПЛОХИЕ ОБЪЕКТЫ", new Color(1f, 0.4f, 0.3f), BadObjectNames),
@@ -2690,6 +2756,52 @@ public static class SceneSetup
         trickCarouselBgRt.anchorMax = Vector2.one;
         trickCarouselBgRt.offsetMin = Vector2.zero;
         trickCarouselBgRt.offsetMax = Vector2.zero;
+
+        // Static reminder that holding down (same gesture/key the actual
+        // live screen uses to exit — see UpdateTrickCarousel) also backs out
+        // of this carousel — the hold itself already worked silently on
+        // every page (StartScreenController.UpdateTrickCarousel), but with
+        // no on-screen hint anywhere a player had no way to discover it.
+        // A sibling of trickCarouselContentGo (not any one page) so it's
+        // one shared element visible on every page, not duplicated per page.
+        var trickExitHintGo = new GameObject("TrickCarouselExitHint");
+        trickExitHintGo.transform.SetParent(trickCarouselGo.transform, false);
+        Text trickExitHint = trickExitHintGo.AddComponent<Text>();
+        trickExitHint.font = GameFont;
+        trickExitHint.fontSize = 26;
+        trickExitHint.fontStyle = FontStyle.Bold;
+        trickExitHint.alignment = TextAnchor.MiddleCenter;
+        trickExitHint.color = new Color(0.85f, 0.85f, 0.85f);
+        trickExitHint.text = "ВЫХОД — ДЕРЖАТЬ ВНИЗ 5 СЕК";
+        trickExitHintGo.AddComponent<Outline>().effectColor = Color.black;
+        RectTransform trickExitHintRt = trickExitHint.GetComponent<RectTransform>();
+        trickExitHintRt.anchorMin = new Vector2(0.5f, 0f);
+        trickExitHintRt.anchorMax = new Vector2(0.5f, 0f);
+        trickExitHintRt.pivot = new Vector2(0.5f, 0f);
+        trickExitHintRt.sizeDelta = new Vector2(900f, 50f);
+        trickExitHintRt.anchoredPosition = new Vector2(0f, 24f);
+
+        // Live countdown while actually holding down, same 2-phase feel as
+        // the live practice screen's own trainingCountdownGo (silent first,
+        // then this appears) — a sibling of trickCarouselContentGo, not any
+        // one page, so it's shared across all of them the same way the
+        // static hint above is.
+        var trickExitCountdownGo = new GameObject("TrickCarouselExitCountdown");
+        trickExitCountdownGo.transform.SetParent(trickCarouselGo.transform, false);
+        Text trickExitCountdownText = trickExitCountdownGo.AddComponent<Text>();
+        trickExitCountdownText.font = GameFont;
+        trickExitCountdownText.fontSize = 90;
+        trickExitCountdownText.fontStyle = FontStyle.Bold;
+        trickExitCountdownText.alignment = TextAnchor.MiddleCenter;
+        trickExitCountdownText.color = new Color(1f, 0.85f, 0.15f);
+        trickExitCountdownGo.AddComponent<Outline>().effectColor = Color.black;
+        RectTransform trickExitCountdownRt = trickExitCountdownText.GetComponent<RectTransform>();
+        trickExitCountdownRt.anchorMin = new Vector2(0.5f, 0f);
+        trickExitCountdownRt.anchorMax = new Vector2(0.5f, 0f);
+        trickExitCountdownRt.pivot = new Vector2(0.5f, 0f);
+        trickExitCountdownRt.sizeDelta = new Vector2(240f, 110f);
+        trickExitCountdownRt.anchoredPosition = new Vector2(0f, 90f);
+        trickExitCountdownGo.SetActive(false);
 
         // Each gesture page's "ВАШИ ДЕЙСТВИЯ" column gets its own pair of
         // flat live-reaction bugs (see CreateGestureDiagramPage) — the
@@ -3009,6 +3121,7 @@ public static class SceneSetup
         so.FindProperty("trickCarouselCanvasRoot").objectReferenceValue = trickCarouselGo;
         SetPrefabArray(so, "trickCarouselPages", trickCarouselPages);
         so.FindProperty("trickCarouselBackground").objectReferenceValue = trickCarouselBgGo;
+        so.FindProperty("trickCarouselExitCountdownText").objectReferenceValue = trickExitCountdownText;
         so.FindProperty("startOutline").objectReferenceValue = startRowOutline;
         so.FindProperty("startRowBg").objectReferenceValue = startRowBg;
         so.FindProperty("playerRight").objectReferenceValue = playerRight;
@@ -3016,6 +3129,7 @@ public static class SceneSetup
         so.FindProperty("gestureRight").objectReferenceValue = playerRight.GetComponent<GestureInput>();
         so.FindProperty("gestureLeft").objectReferenceValue = playerLeft.GetComponent<GestureInput>();
         so.FindProperty("joystickLeft").objectReferenceValue = playerLeft.GetComponent<JoystickInput>();
+        so.FindProperty("joystickRight").objectReferenceValue = playerRight.GetComponent<JoystickInput>();
         so.FindProperty("gestureCanvasRight").objectReferenceValue = gestureCanvasRight;
         so.FindProperty("gestureCanvasLeft").objectReferenceValue = gestureCanvasLeft;
         so.FindProperty("musicSource").objectReferenceValue = musicSource;
@@ -3184,10 +3298,10 @@ public static class SceneSetup
         // "almost in the same spot, just slightly offset" at rest, only
         // pulling apart once one of them actually leans away.
         const float liveBugRestX = 35f;
-        // Right side for player-right (arrow keys, physically the right
-        // side of a keyboard), left side for player-left (WASD, physically
-        // the left side) — matches the real game's own control layout, per
-        // feedback (was swapped from this before). Each bug's 3 lane X
+        // Right side for player-right (IJKL, physically the right side of a
+        // keyboard), left side for player-left (WASD, physically the left
+        // side) — matches the real game's own control layout, per feedback
+        // (was swapped from this before). Each bug's 3 lane X
         // coordinates are explicit, not computed from a shift — both bugs
         // share the same column and are meant to freely cross into each
         // other's territory while leaning (per feedback, deliberately
@@ -3196,7 +3310,7 @@ public static class SceneSetup
         // CreatePlayer's own tint args).
         CreateLiveBugPreview(actionColumnGo.transform, new Vector2(liveBugRestX, liveBugRestY), bugHeight,
             playerRight.GetComponent<GestureInput>(), playerRight.GetComponent<JoystickInput>(),
-            KeyCode.LeftArrow, KeyCode.RightArrow, KeyCode.UpArrow, KeyCode.DownArrow, "LadyBug1.png", Color.white, -140f, liveBugRestX, 160f);
+            KeyCode.J, KeyCode.L, KeyCode.I, KeyCode.K, "LadyBug1.png", Color.white, -140f, liveBugRestX, 160f);
         leftBug = CreateLiveBugPreview(actionColumnGo.transform, new Vector2(-liveBugRestX, liveBugRestY), bugHeight,
             playerLeft.GetComponent<GestureInput>(), playerLeft.GetComponent<JoystickInput>(),
             KeyCode.A, KeyCode.D, KeyCode.W, KeyCode.S, "LadyBug2.png", new Color(0.55f, 0.75f, 1f), -160f, -liveBugRestX, 140f);
@@ -3617,8 +3731,8 @@ public static class SceneSetup
     // УПРАВЛЕНИЕ: keeps the original 2-line keyboard mapping (top/bottom,
     // same spread CreateChecklistPage used for these exact two lines), and
     // adds the two real hardware alternatives in the gap between them — the
-    // co-op rig is one board of hand sensors for player 1 (right) and one
-    // joystick board for player 2 (left), see GestureSensorSerial/
+    // co-op rig is one board of hand sensors for player 1 (left) and one
+    // joystick board for player 2 (right), see GestureSensorSerial/
     // JoystickSerial — same up/down/left-right mapping either way, just
     // different hardware reading it.
     static GameObject CreateControlsPage(Transform parent)
@@ -3819,7 +3933,11 @@ public static class SceneSetup
 
             Texture2D archTex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/SmallArch.png");
             var archGo = new GameObject("Arch");
-            archGo.transform.SetParent(content, false);
+            // Parented to the whole page, not content (the ОБРАЗЕЦ half) —
+            // content's own center is the LEFT half's center, which had the
+            // arch passing through off to one side instead of straight down
+            // the page's own true middle, symmetric across both halves.
+            archGo.transform.SetParent(page.transform, false);
             RawImage archImg = archGo.AddComponent<RawImage>();
             archImg.texture = archTex;
             RectTransform archRt = archImg.GetComponent<RectTransform>();
@@ -3885,13 +4003,18 @@ public static class SceneSetup
             return new Vector2(Mathf.Cos(angle) * bugX * 1.6f, Mathf.Sin(angle) * ovalYRadius);
         };
         // No arrowhead — a plain closed oval, not a directional cue (see
-        // CreateDashedRouteBackdrop's own showArrowheads comment). Drawn on
+        // CreateDashedPathTexture's own showArrowheads comment). Drawn on
         // both ОБРАЗЕЦ and ВАШИ ДЕЙСТВИЯ (routeDrawer, see CreateTrainingSplit)
-        // instead of just inline here, so it isn't ОБРАЗЕЦ-only.
-        System.Action<Transform> routeDrawer = routeContent => CreateDashedRouteBackdrop(routeContent, null, 1400f, false, oval);
+        // instead of just inline here, so it isn't ОБРАЗЕЦ-only — built once
+        // and shared between both (see CreateDashedRouteBackdrop's own
+        // comment on why generating it twice is wasteful).
+        const float routeWorldSpan = 1400f;
+        Texture2D routeTex = CreateDashedPathTexture(900, routeWorldSpan, new System.Func<float, Vector2>[] { oval }, null, showArrowheads: false);
+        System.Action<Transform> routeDrawer = routeContent => CreateDashedRouteBackdrop(routeContent, routeTex, routeWorldSpan);
         // Oval route reaches ±352 wide natively (bugX*1.6) — well past half
         // a page — shrunk down (0.72) to actually fit next to ВАШИ ДЕЙСТВИЯ.
-        CreateTrainingSplit(page, playerRight, playerLeft, 0.72f, out leftBug, content =>
+        const float sampleContentScale = 0.72f;
+        CreateTrainingSplit(page, playerRight, playerLeft, sampleContentScale, out leftBug, content =>
         {
             const float bugHeight = 150f;
 
@@ -3932,6 +4055,9 @@ public static class SceneSetup
             successRt.pivot = new Vector2(0.5f, 0.5f);
             successRt.sizeDelta = new Vector2(700f, 80f);
             successRt.anchoredPosition = new Vector2(0f, -300f);
+            // Counter-scaled against content's own sampleContentScale
+            // shrink — see the same fix's comment in CreateTrickDiagramPage.
+            successGo.transform.localScale = Vector3.one / sampleContentScale;
             successGo.SetActive(false);
 
             RingTrickAnimation anim = page.AddComponent<RingTrickAnimation>();
@@ -3976,8 +4102,15 @@ public static class SceneSetup
         GameObject leftBug;
         Transform capturedContent = null;
         System.Action<Transform> routeDrawer = null;
+        const float routeWorldSpan = 1400f;
         if ((routeCurves != null && routeCurves.Length > 0) || (routeDots != null && routeDots.Length > 0))
-            routeDrawer = routeContent => CreateDashedRouteBackdrop(routeContent, routeDots, 1400f, showArrowheads, routeCurves);
+        {
+            // Built once and shared between ОБРАЗЕЦ and ВАШИ ДЕЙСТВИЯ (see
+            // CreateDashedRouteBackdrop's own comment on why generating this
+            // twice per page is wasteful).
+            Texture2D routeTex = CreateDashedPathTexture(900, routeWorldSpan, routeCurves, routeDots, showArrowheads: showArrowheads);
+            routeDrawer = routeContent => CreateDashedRouteBackdrop(routeContent, routeTex, routeWorldSpan);
+        }
         CreateTrainingSplit(page, playerRight, playerLeft, sampleContentScale, out leftBug, content =>
         {
             capturedContent = content;
@@ -4016,6 +4149,15 @@ public static class SceneSetup
             successRt.pivot = new Vector2(0.5f, 0.5f);
             successRt.sizeDelta = new Vector2(700f, 80f);
             successRt.anchoredPosition = new Vector2(0f, -300f);
+            // Counter-scaled against content's own sampleContentScale shrink
+            // (see CreateScaledContainer) — sizeDelta/anchoredPosition are
+            // in content's local units so the text still sits in the same
+            // relative spot, but its actual rendered font size was
+            // shrinking right along with the bug icons/route, unlike ВАШИ
+            // ДЕЙСТВИЯ's own (unscaled) text. Only the picture elements
+            // were meant to shrink to fit half a page — per feedback the
+            // text should read at full native size like the live side does.
+            successGo.transform.localScale = Vector3.one / sampleContentScale;
             successGo.SetActive(false);
 
             TrickDiagramAnimation anim = page.AddComponent<TrickDiagramAnimation>();
@@ -5904,11 +6046,15 @@ public static class SceneSetup
     // Builds the dashed-route RawImage itself, full-page-sized and sitting
     // behind the bugs (earlier sibling — added right after the page title,
     // before anything else), for the trick pages that want a route shape
-    // traced behind the animation.
-    static void CreateDashedRouteBackdrop(Transform parent, (Vector2 pos, float radius)[] dots, float worldSpan,
-        bool showArrowheads, params System.Func<float, Vector2>[] curves)
+    // traced behind the animation. Takes an already-built texture rather
+    // than generating one — CreateTrainingSplit's routeDrawer callback
+    // fires once per column (ОБРАЗЕЦ and ВАШИ ДЕЙСТВИЯ both draw the same
+    // route), and CreateDashedPathTexture is expensive (900x900, embedded
+    // straight into the scene since it's never saved as its own asset) —
+    // generating it twice per page doubled the scene file's own size for
+    // an identical picture. Callers build the texture once and share it.
+    static void CreateDashedRouteBackdrop(Transform parent, Texture2D tex, float worldSpan)
     {
-        Texture2D tex = CreateDashedPathTexture(900, worldSpan, curves, dots, showArrowheads: showArrowheads);
         var go = new GameObject("RouteBackdrop");
         go.transform.SetParent(parent, false);
         RawImage img = go.AddComponent<RawImage>();

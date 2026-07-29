@@ -77,10 +77,26 @@ public class PlayerController : MonoBehaviour
     private readonly List<MoveEvent> _moveHistory = new List<MoveEvent>();
     private const float MoveHistoryWindow = 6f;
 
+    // Every multi-step trick below (ЧЕХАРДА/СИНХРОН/БОЛЬШОЕ КОЛЬЦО/
+    // БЕСКОНЕЧНОСТЬ) is defined relative to a 3-lane WINDOW — edge/edge/
+    // middle — not the road's own total lane count (laneCount, above), so
+    // each one works the same wherever on the road that window happens to
+    // sit and however many total lanes the road actually has. One constant
+    // (TrickWindowLanes) drives both derived spans: TrickFullSpan is an
+    // edge-to-edge move across the whole window (ЧЕХАРДА/СИНХРОН/БОЛЬШОЕ
+    // КОЛЬЦО's own 2-lane sweeps), TrickHalfSpan is a middle-to-edge move
+    // (БЕСКОНЕЧНОСТЬ's own out-and-back legs).
+    private const int TrickWindowLanes = 3;
+    private const int TrickFullSpan = TrickWindowLanes - 1;
+    private const int TrickHalfSpan = TrickWindowLanes / 2;
+
     // ЧЕХАРДА (leapfrog) bookkeeping — set on the "top" player (the one
-    // Bouncing on a partner in an edge lane) the moment they dismount to
-    // the middle lane, so the "bottom" partner's own subsequent 2-lane
-    // airborne hop can recognize what it's completing.
+    // Bouncing on a partner) the moment they dismount sideways by a lane,
+    // so the "bottom" partner's own subsequent full-window airborne hop
+    // starting from that same lane can recognize what it's completing (see
+    // TryDetectLeapfrogTrick's own dismountMatches check — the actual
+    // "was this really an edge of some 3-lane window" validation happens
+    // there, via TrickFullSpan, not here).
     private int _stackDismountFromLane = -1;
     private float _stackDismountTime = -999f;
     private static float _lastLeapfrogTrickTime = -999f;
@@ -282,6 +298,8 @@ public class PlayerController : MonoBehaviour
                     SfxManager.Instance.PlayBad(entity.gameObject.name);
                 if (AchievementStats.Instance != null)
                     AchievementStats.Instance.RecordHit(EntityIcon(entity));
+                if (ObjectFeedbackIndicator.Instance != null)
+                    ObjectFeedbackIndicator.Instance.OnBadPickup();
             }
             else
             {
@@ -289,6 +307,8 @@ public class PlayerController : MonoBehaviour
                     SfxManager.Instance.PlayPickup();
                 if (AchievementStats.Instance != null)
                     AchievementStats.Instance.RecordCollected(EntityIcon(entity));
+                if (ObjectFeedbackIndicator.Instance != null)
+                    ObjectFeedbackIndicator.Instance.OnGoodPickup();
             }
 
             Destroy(entity.gameObject);
@@ -564,7 +584,7 @@ public class PlayerController : MonoBehaviour
         _moveHistory.RemoveAll(e => Time.time - e.time > MoveHistoryWindow);
 
         if (_verticalState == VerticalState.Bouncing)
-            TryRecordStackDismount(previousLane, target);
+            TryRecordStackDismount(previousLane);
 
         TryDetectRingTrick();
         TryDetectLeapfrogTrick();
@@ -573,17 +593,13 @@ public class PlayerController : MonoBehaviour
         TryDetectInfinityTrick();
     }
 
-    // ЧЕХАРДА (leapfrog) — top half: the Bouncing rider dismounts an edge
-    // lane straight to the middle one, freeing the partner underneath them
-    // to complete the trick (see TryDetectLeapfrogTrick).
-    private void TryRecordStackDismount(int from, int to)
+    // ЧЕХАРДА (leapfrog) — top half: the Bouncing rider dismounts sideways
+    // by one lane, freeing the partner underneath them to complete the
+    // trick (see TryDetectLeapfrogTrick).
+    private void TryRecordStackDismount(int from)
     {
-        bool wasEdge = from == 0 || from == laneCount - 1;
-        if (wasEdge && to == laneCount / 2)
-        {
-            _stackDismountFromLane = from;
-            _stackDismountTime = Time.time;
-        }
+        _stackDismountFromLane = from;
+        _stackDismountTime = Time.time;
     }
 
     // ЧЕХАРДА (leapfrog) — bottom half: freed from supporting the rider
@@ -603,8 +619,7 @@ public class PlayerController : MonoBehaviour
 
         bool bothAirborne = last.airborne && prev.airborne;
         bool sameDirection = (last.toLane - last.fromLane) == (prev.toLane - prev.fromLane);
-        bool spansBothEdges = (prev.fromLane == 0 && last.toLane == laneCount - 1) ||
-                               (prev.fromLane == laneCount - 1 && last.toLane == 0);
+        bool spansBothEdges = Mathf.Abs(last.toLane - prev.fromLane) == TrickFullSpan;
         bool closeInTime = last.time - prev.time < 0.6f;
         if (!(bothAirborne && sameDirection && spansBothEdges && closeInTime))
             return;
@@ -647,8 +662,7 @@ public class PlayerController : MonoBehaviour
 
         bool bothGrounded = !last.airborne && !prev.airborne;
         bool sameDirection = (last.toLane - last.fromLane) == (prev.toLane - prev.fromLane);
-        bool spansBothEdges = (prev.fromLane == 0 && last.toLane == laneCount - 1) ||
-                               (prev.fromLane == laneCount - 1 && last.toLane == 0);
+        bool spansBothEdges = Mathf.Abs(last.toLane - prev.fromLane) == TrickFullSpan;
         bool closeInTime = last.time - prev.time < 0.6f;
         if (!(bothGrounded && sameDirection && spansBothEdges && closeInTime))
             return;
@@ -686,7 +700,7 @@ public class PlayerController : MonoBehaviour
         bool groundLeg = !g1.airborne && !g2.airborne;
         bool airLeg = a1.airborne && a2.airborne;
         bool chained = g1.toLane == g2.fromLane && a1.fromLane == g2.toLane && a2.fromLane == a1.toLane;
-        bool groundSweep = (g1.fromLane == 0 && g2.toLane == laneCount - 1) || (g1.fromLane == laneCount - 1 && g2.toLane == 0);
+        bool groundSweep = Mathf.Abs(g2.toLane - g1.fromLane) == TrickFullSpan;
         bool airSweep = a2.toLane == g1.fromLane; // back where it started
         bool closeInTime = a2.time - g1.time < 3f;
 
@@ -720,14 +734,16 @@ public class PlayerController : MonoBehaviour
         }
     }
 
-    // БЕСКОНЕЧНОСТЬ — from the middle lane, out to one edge and back
-    // (grounded out, airborne back — a jump bridges the two), then out to
-    // the other edge and back the same way — a figure-8 traced across the
-    // three lanes.
+    // БЕСКОНЕЧНОСТЬ — from the middle lane of some 3-lane window, out to
+    // one edge of it and back (grounded out, airborne back — a jump
+    // bridges the two), then out to the other edge and back the same
+    // way — a figure-8 traced across those three lanes. "Middle" is
+    // wherever this particular figure-8 actually started (g1.fromLane),
+    // not a fixed road-wide middle — same reasoning as TrickFullSpan
+    // above, so this works from any 3-lane window on the road.
     private bool HasInfinityPattern(out float endTime)
     {
         endTime = 0f;
-        int mid = laneCount / 2;
         if (_moveHistory.Count < 4)
             return false;
 
@@ -737,9 +753,10 @@ public class PlayerController : MonoBehaviour
         MoveEvent g2 = _moveHistory[n - 2];
         MoveEvent a2 = _moveHistory[n - 1];
 
-        bool leg1 = !g1.airborne && g1.fromLane == mid && (g1.toLane == 0 || g1.toLane == laneCount - 1);
+        int mid = g1.fromLane;
+        bool leg1 = !g1.airborne && Mathf.Abs(g1.toLane - mid) == TrickHalfSpan;
         bool ret1 = a1.airborne && a1.fromLane == g1.toLane && a1.toLane == mid;
-        bool leg2 = !g2.airborne && g2.fromLane == mid && (g2.toLane == 0 || g2.toLane == laneCount - 1) && g2.toLane != g1.toLane;
+        bool leg2 = !g2.airborne && g2.fromLane == mid && Mathf.Abs(g2.toLane - mid) == TrickHalfSpan && g2.toLane != g1.toLane;
         bool ret2 = a2.airborne && a2.fromLane == g2.toLane && a2.toLane == mid;
         bool closeInTime = a2.time - g1.time < 6f;
 

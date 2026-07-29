@@ -19,9 +19,10 @@ public class DistanceIndicator : MonoBehaviour
 
         float traveled = SpeedController.Instance.DistanceKm;
         float targetKm = WinSequence.Instance.WinDistanceKm;
-        // "из" rendered smaller than the two numbers around it (rich text —
-        // Text.supportRichText is on by default) via an inline <size> tag,
-        // per feedback — it's just a connector word, not a value.
-        distanceText.text = string.Format("{0:0.0} км\n<size=26>из</size>\n{1:0} км", traveled, targetKm);
+        // "из" and both "км" rendered smaller than the actual numbers (rich
+        // text — Text.supportRichText is on by default) via inline <size>
+        // tags, per feedback — only the numbers themselves are values, "из"
+        // and "км" are just connective units/words.
+        distanceText.text = string.Format("{0:0.0}<size=26> км</size>\n<size=26>из</size>\n{1:0}<size=26> км</size>", traveled, targetKm);
     }
 }
