@@ -80,7 +80,7 @@ public class WinSequence : MonoBehaviour
     // leaderboard category — same component the start-screen carousel uses.
     [SerializeField] private GameObject[] leaderboardPages;
 
-    [SerializeField] private float entityFadeDuration = 1.5f;
+    [SerializeField] private float entityFadeDuration = 3f;
     [SerializeField] private float flyDuration = 3f;
     [SerializeField] private float flyHeightGain = 20f;
     [SerializeField] private float flyDistanceGain = 220f;
@@ -200,9 +200,15 @@ public class WinSequence : MonoBehaviour
             if (SpeedController.Instance != null)
                 SpeedController.Instance.CancelDecelerate();
             foreach (var spawner in FindObjectsOfType<EntitySpawner>())
-                spawner.enabled = true;
+            {
+                if (DebugRunConfig.AllowsRoadSpawns)
+                    spawner.enabled = true;
+            }
             foreach (var spawner in FindObjectsOfType<BigArchSpawner>())
-                spawner.enabled = true;
+            {
+                if (DebugRunConfig.AllowsRoadSpawns)
+                    spawner.enabled = true;
+            }
             yield break;
         }
 
@@ -234,6 +240,10 @@ public class WinSequence : MonoBehaviour
         foreach (var spawner in FindObjectsOfType<EntitySpawner>())
             spawner.enabled = false;
         foreach (var spawner in FindObjectsOfType<SideScenerySpawner>())
+            spawner.enabled = false;
+        foreach (var spawner in FindObjectsOfType<ShoulderDecorSpawner>())
+            spawner.enabled = false;
+        foreach (var spawner in FindObjectsOfType<GrassDecorSpawner>())
             spawner.enabled = false;
         // BigArchSpawner runs on its own timer independent of EntitySpawner
         // and only checks SpeedController.IsRunning (which stays true
@@ -308,6 +318,9 @@ public class WinSequence : MonoBehaviour
                 col.enabled = false;
             entity.enabled = false; // hold position — don't let the speed boost drag them around mid-fade
         }
+        // Win-boost runs through this whole hold — road (and wing-flap pace
+        // via CurrentSpeed) ramps up for entityFadeDuration before the bugs
+        // actually launch (FlyPlayersAway below).
         yield return StartCoroutine(FadeOutEntities(entities));
 
         if (players.Length > 0)
@@ -390,6 +403,12 @@ public class WinSequence : MonoBehaviour
         // the rest of the recap was skipped — it's the actual ending, not
         // another page to sit through.
         yield return new WaitForSeconds(finalTitleHoldDuration);
+
+        // Drop any win-boost / pause leftovers before the reload — otherwise
+        // a stale CurrentSpeed or _winBoost can survive into the next run if
+        // the scene transition doesn't recreate this object cleanly.
+        if (SpeedController.Instance != null)
+            SpeedController.Instance.ResetForMenu();
 
         SceneManager.LoadScene(SceneManager.GetActiveScene().name);
     }
