@@ -1084,6 +1084,7 @@ public static class SceneSetup
         CloudSpawner spawner = spawnerGo.AddComponent<CloudSpawner>();
         SerializedObject so = new SerializedObject(spawner);
         SetPrefabArray(so, "prefabs", prefabs);
+        so.FindProperty("spawnZJitter").floatValue = 7f;
         so.ApplyModifiedPropertiesWithoutUndo();
 
         GameObject birdPrefab = CreateBirdPrefab();
@@ -1099,6 +1100,7 @@ public static class SceneSetup
             birdSo.FindProperty("maxSpawnCount").intValue = 2;
             birdSo.FindProperty("initialMinCount").intValue = 4;
             birdSo.FindProperty("initialMaxCount").intValue = 8;
+            birdSo.FindProperty("spawnZJitter").floatValue = 7f;
             birdSo.ApplyModifiedPropertiesWithoutUndo();
         }
 
@@ -1150,7 +1152,7 @@ public static class SceneSetup
         SkyBird bird = root.AddComponent<SkyBird>();
         SerializedObject birdSo = new SerializedObject(bird);
         birdSo.FindProperty("wingSpan").floatValue = 2.0f;
-        birdSo.FindProperty("wingDropMin").floatValue = 0.38f;
+        birdSo.FindProperty("wingDropMin").floatValue = -1.1f;
         birdSo.FindProperty("wingDropMax").floatValue = 1.15f;
         birdSo.FindProperty("wingBow").floatValue = 0.14f;
         birdSo.FindProperty("wingSegments").intValue = 8;
@@ -1552,7 +1554,7 @@ public static class SceneSetup
         text.text = "СУТЬ ИГРЫ\n"
                   + "Дорога сама разгоняется всё быстрее, собирать хорошее, избегать плохое, вдвоём — делать трюки\n\n"
                   + "ЦЕЛЬ\n"
-                  + "Проехать 100 км за самое короткое время, дополнительно набирая очки, трюки и скорость\n\n"
+                  + "Пробежать 100 км за самое короткое время, дополнительно набирая очки, трюки и скорость\n\n"
                   + "УПРАВЛЕНИЕ\n"
                   + "Правый: ← → полоса, ↑ прыжок, ↓ пригнуться\n"
                   + "Левый: A D полоса, W прыжок, S пригнуться\n"
@@ -1937,9 +1939,8 @@ public static class SceneSetup
         // ТРЮКИ). Same nested-quarter-sector badge shape as the left
         // corner's own, but driven by object pickups (ObjectFeedbackIndicator)
         // instead of live speed telemetry — a happy/sad face in the center
-        // badge, and the tick arc itself fills/drains per pickup. Colors run
-        // red (bottom) to green (top) — the reverse of the left hub's own
-        // green-to-red — per feedback.
+        // badge, and the tick arc fills from the centre outward: good → upper
+        // half (green at top), bad → lower half (red at bottom).
         var emptyHubGo = new GameObject("RightHubPlaceholder");
         emptyHubGo.transform.SetParent(canvasGo.transform, false);
         Texture2D rightHubWedgeTexture = CreateWedgeTexture(400, RightWedgeAngle * 2f, false, true, false);
@@ -2107,13 +2108,14 @@ public static class SceneSetup
         newRecordAnnounceText.fontStyle = FontStyle.Bold;
         newRecordAnnounceText.alignment = TextAnchor.MiddleCenter;
         newRecordAnnounceText.color = new Color(1f, 0.85f, 0.15f);
+        newRecordAnnounceText.lineSpacing = 1.25f;
         newRecordAnnounceText.text = "ВЫ УСТАНОВИЛИ НОВЫЙ РЕКОРД!\nСЕЙЧАС МЫ ВАС СФОТОГРАФИРУЕМ ДЛЯ ИСТОРИИ.\nПРИГОТОВЬТЕСЬ!";
         newRecordAnnounceGo.AddComponent<Outline>().effectColor = Color.black;
         RectTransform newRecordAnnounceRt = newRecordAnnounceText.GetComponent<RectTransform>();
         newRecordAnnounceRt.anchorMin = new Vector2(0.5f, 0.5f);
         newRecordAnnounceRt.anchorMax = new Vector2(0.5f, 0.5f);
         newRecordAnnounceRt.pivot = new Vector2(0.5f, 0.5f);
-        newRecordAnnounceRt.sizeDelta = new Vector2(1300f, 300f);
+        newRecordAnnounceRt.sizeDelta = new Vector2(1300f, 340f);
         newRecordAnnounceRt.anchoredPosition = Vector2.zero;
         newRecordAnnounceGo.SetActive(false);
 
@@ -2132,7 +2134,7 @@ public static class SceneSetup
         continuePromptText.fontStyle = FontStyle.Bold;
         continuePromptText.alignment = TextAnchor.MiddleCenter;
         continuePromptText.color = new Color(1f, 0.85f, 0.15f);
-        continuePromptText.text = "ДЛЯ ПРОДОЛЖЕНИЯ — СДЕЛАЙТЕ ДВИЖЕНИЕ МАХАНИЯ";
+        continuePromptText.text = "ДЛЯ ПРОДОЛЖЕНИЯ — СДЕЛАЙТЕ ПРЫЖОК ВВЕРХ";
         continuePromptTextGo.AddComponent<Outline>().effectColor = Color.black;
         RectTransform continuePromptTextRt = continuePromptText.GetComponent<RectTransform>();
         continuePromptTextRt.anchorMin = new Vector2(0.5f, 0.5f);
@@ -2168,6 +2170,7 @@ public static class SceneSetup
         winText.fontStyle = FontStyle.Bold;
         winText.alignment = TextAnchor.MiddleCenter;
         winText.color = new Color(1f, 0.85f, 0.15f);
+        winText.supportRichText = true;
         winText.text = "ВЫ ПРОШЛИ ДО КОНЦА";
 
         Outline winOutline = winTextGo.AddComponent<Outline>();
@@ -2178,9 +2181,31 @@ public static class SceneSetup
         winRt.anchorMin = new Vector2(0.5f, 0.5f);
         winRt.anchorMax = new Vector2(0.5f, 0.5f);
         winRt.pivot = new Vector2(0.5f, 0.5f);
-        winRt.sizeDelta = new Vector2(1300f, 200f);
+        winRt.sizeDelta = new Vector2(1300f, 320f);
         winRt.anchoredPosition = new Vector2(0f, 300f); // was 220 — raised, was getting covered
         winTextGo.SetActive(false);
+
+        var winCongratsGo = new GameObject("WinCongratsText");
+        winCongratsGo.transform.SetParent(scoreCanvas.transform, false);
+        Text winCongratsText = winCongratsGo.AddComponent<Text>();
+        winCongratsText.font = GameFont;
+        winCongratsText.fontSize = 110;
+        winCongratsText.fontStyle = FontStyle.Bold;
+        winCongratsText.alignment = TextAnchor.MiddleCenter;
+        winCongratsText.color = new Color(1f, 0.85f, 0.15f);
+        winCongratsText.text = "ПОЗДРАВЛЯЕМ!!!";
+
+        Outline winCongratsOutline = winCongratsGo.AddComponent<Outline>();
+        winCongratsOutline.effectColor = Color.black;
+        winCongratsOutline.effectDistance = new Vector2(3f, -3f);
+
+        RectTransform winCongratsRt = winCongratsGo.GetComponent<RectTransform>();
+        winCongratsRt.anchorMin = new Vector2(0.5f, 0.5f);
+        winCongratsRt.anchorMax = new Vector2(0.5f, 0.5f);
+        winCongratsRt.pivot = new Vector2(0.5f, 0.5f);
+        winCongratsRt.sizeDelta = new Vector2(1300f, 180f);
+        winCongratsRt.anchoredPosition = new Vector2(0f, -60f);
+        winCongratsGo.SetActive(false);
 
         // Shared backdrop behind the record reveal and the stats pages below
         // it — same dark-tint-plus-outline treatment every other table in
@@ -2413,6 +2438,7 @@ public static class SceneSetup
         so.FindProperty("continuePromptRoot").objectReferenceValue = continuePromptGo;
         so.FindProperty("continueCountdownText").objectReferenceValue = continueCountdownText;
         so.FindProperty("winTextRoot").objectReferenceValue = winRt;
+        so.FindProperty("winCongratsTextRoot").objectReferenceValue = winCongratsRt;
         so.FindProperty("statsBackdrop").objectReferenceValue = statsBackdropGo;
         so.FindProperty("statsTitle").objectReferenceValue = statsTitle;
         SerializedProperty statsRowsProp = so.FindProperty("statsRows");
@@ -2540,12 +2566,14 @@ public static class SceneSetup
     // menu chrome) and reveal them once the game actually begins.
     static (GameObject left, GameObject right) CreateGestureIndicators(GameObject playerRight, GameObject playerLeft)
     {
-        GameObject leftCanvas = CreateGesturePanel(playerLeft, new Vector2(0f, 0f));
-        GameObject rightCanvas = CreateGesturePanel(playerRight, new Vector2(1f, 0f));
+        // Screen-left = joystick (player 2); screen-right = sensors (player 1),
+        // matching the physical rig layout on the УПРАВЛЕНИЕ page sketch.
+        GameObject leftCanvas = CreateJoystickGesturePanel(playerRight, new Vector2(0f, 0f));
+        GameObject rightCanvas = CreateSensorGesturePanel(playerLeft, new Vector2(1f, 0f));
         return (leftCanvas, rightCanvas);
     }
 
-    static GameObject CreateGesturePanel(GameObject player, Vector2 anchor)
+    static GameObject CreateSensorGesturePanel(GameObject player, Vector2 anchor)
     {
         bool leftSide = anchor.x < 0.5f;
         float sign = leftSide ? 1f : -1f;
@@ -2661,6 +2689,101 @@ public static class SceneSetup
         // clutter during actual play. Sensor height (above) and the
         // interpreted-gesture arrows stay.
         return canvasGo;
+    }
+
+    static GameObject CreateJoystickGesturePanel(GameObject player, Vector2 anchor)
+    {
+        bool leftSide = anchor.x < 0.5f;
+        float sign = leftSide ? 1f : -1f;
+
+        var canvasGo = new GameObject(player.name + "GestureCanvas");
+        Canvas canvas = canvasGo.AddComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+
+        CanvasScaler scaler = canvasGo.AddComponent<CanvasScaler>();
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        scaler.referenceResolution = new Vector2(1920f, 1080f);
+        scaler.matchWidthOrHeight = 1f;
+        canvasGo.AddComponent<GraphicRaycaster>();
+
+        const float actionY = 20f;
+        const float actionHeight = 70f;
+        var actionGo = new GameObject("JoystickAction");
+        actionGo.transform.SetParent(canvasGo.transform, false);
+        Text actionText = actionGo.AddComponent<Text>();
+        actionText.font = GameFont;
+        actionText.fontSize = 40;
+        actionText.fontStyle = FontStyle.Bold;
+        actionText.alignment = leftSide ? TextAnchor.LowerLeft : TextAnchor.LowerRight;
+        actionText.color = new Color(1f, 0.85f, 0.2f);
+        actionText.text = "–";
+        actionGo.AddComponent<Outline>().effectColor = Color.black;
+        RectTransform actionRt = actionText.GetComponent<RectTransform>();
+        actionRt.anchorMin = anchor;
+        actionRt.anchorMax = anchor;
+        actionRt.pivot = anchor;
+        actionRt.sizeDelta = new Vector2(340f, actionHeight);
+        actionRt.anchoredPosition = new Vector2(sign * 20f, actionY);
+
+        var actionIndicatorGo = new GameObject(player.name + "JoystickActionIndicator");
+        JoystickActionIndicator actionIndicator = actionIndicatorGo.AddComponent<JoystickActionIndicator>();
+        SerializedObject actionSo = new SerializedObject(actionIndicator);
+        actionSo.FindProperty("joystickInput").objectReferenceValue = player.GetComponent<JoystickInput>();
+        actionSo.FindProperty("actionText").objectReferenceValue = actionText;
+        actionSo.ApplyModifiedPropertiesWithoutUndo();
+
+        const float crossY = actionY + actionHeight + 24f;
+        const float crossSize = 150f;
+        const float armOffset = 46f;
+        var crossGo = new GameObject("JoystickCross");
+        crossGo.transform.SetParent(canvasGo.transform, false);
+        RectTransform crossRt = crossGo.AddComponent<RectTransform>();
+        crossRt.anchorMin = anchor;
+        crossRt.anchorMax = anchor;
+        crossRt.pivot = anchor;
+        crossRt.sizeDelta = new Vector2(crossSize, crossSize);
+        crossRt.anchoredPosition = new Vector2(sign * (20f + crossSize * 0.5f), crossY + crossSize * 0.5f);
+
+        Text upArrow = CreateJoystickHudArrow(crossGo.transform, "Up", new Vector2(0f, armOffset), "↑");
+        Text downArrow = CreateJoystickHudArrow(crossGo.transform, "Down", new Vector2(0f, -armOffset), "↓");
+        Text leftArrow = CreateJoystickHudArrow(crossGo.transform, "Left", new Vector2(-armOffset, 0f), "←");
+        Text rightArrow = CreateJoystickHudArrow(crossGo.transform, "Right", new Vector2(armOffset, 0f), "→");
+        Text centerDot = CreateJoystickHudArrow(crossGo.transform, "Center", Vector2.zero, "•");
+        centerDot.fontSize = 52;
+
+        var indicatorGo = new GameObject(player.name + "JoystickIndicator");
+        JoystickIndicator indicator = indicatorGo.AddComponent<JoystickIndicator>();
+        SerializedObject indicatorSo = new SerializedObject(indicator);
+        indicatorSo.FindProperty("joystickInput").objectReferenceValue = player.GetComponent<JoystickInput>();
+        indicatorSo.FindProperty("upArrow").objectReferenceValue = upArrow;
+        indicatorSo.FindProperty("downArrow").objectReferenceValue = downArrow;
+        indicatorSo.FindProperty("leftArrow").objectReferenceValue = leftArrow;
+        indicatorSo.FindProperty("rightArrow").objectReferenceValue = rightArrow;
+        indicatorSo.FindProperty("centerDot").objectReferenceValue = centerDot;
+        indicatorSo.ApplyModifiedPropertiesWithoutUndo();
+
+        return canvasGo;
+    }
+
+    static Text CreateJoystickHudArrow(Transform parent, string name, Vector2 anchoredPos, string glyph)
+    {
+        var go = new GameObject(name);
+        go.transform.SetParent(parent, false);
+        Text text = go.AddComponent<Text>();
+        text.font = GameFont;
+        text.fontSize = 58;
+        text.fontStyle = FontStyle.Bold;
+        text.alignment = TextAnchor.MiddleCenter;
+        text.color = new Color(0.33f, 0.33f, 0.33f);
+        text.text = glyph;
+        go.AddComponent<Outline>().effectColor = Color.black;
+        RectTransform rt = text.GetComponent<RectTransform>();
+        rt.anchorMin = new Vector2(0.5f, 0.5f);
+        rt.anchorMax = new Vector2(0.5f, 0.5f);
+        rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.sizeDelta = new Vector2(56f, 56f);
+        rt.anchoredPosition = anchoredPos;
+        return text;
     }
 
     // Used to be 6 color variants (random pick from badDuckPrefabs), tinted
@@ -2920,11 +3043,11 @@ public static class SceneSetup
 
         // Built separately (not inline in the list below) so the distance
         // line's Text can be grabbed afterward and wired to a live label —
-        // "проехать N км" needs to track WinSequence's actual win distance
+        // "пробежать N км" needs to track WinSequence's actual win distance
         // (temporarily lowered for debug/test runs) instead of a hardcoded
         // number that'd lie while testing.
         var goalPage = CreateChecklistPage(carouselRt, "ЦЕЛЬ",
-            "проехать 100 км", // GoalDistanceLabel overwrites this with the real live distance
+            "пробежать 100 км", // GoalDistanceLabel overwrites this with the real live distance
             "за минимально возможное время",
             "дополнительно набирать очки",
             "дорога разгоняется сама");
@@ -2943,13 +3066,15 @@ public static class SceneSetup
             // after both of these.
             CreateChecklistPage(carouselRt, "СУТЬ ИГРЫ",
                 "собирать хорошие объекты",
-                "избегать плохие объекты",
+                "не сталкиваться с препятствиями",
                 "выполнять трюки вдвоём").page,
 
             goalPage.page,
 
+            CreateMenuSelectionPage(carouselRt),
+
             CreateObjectGridPage(carouselRt, "ХОРОШИЕ ОБЪЕКТЫ", new Color(0.4f, 1f, 0.5f), GoodObjectNames),
-            CreateObjectGridPage(carouselRt, "ПЛОХИЕ ОБЪЕКТЫ", new Color(1f, 0.4f, 0.3f), BadObjectNames),
+            CreateObjectGridPage(carouselRt, "ПРЕПЯТСТВИЯ", new Color(1f, 0.4f, 0.3f), BadObjectNames),
 
             // УПРАВЛЕНИЕ (which hardware reads which player) — the actual
             // gesture-move pages that used to lead into it here moved to
@@ -3198,15 +3323,34 @@ public static class SceneSetup
         controllerStatus.fontSize = 20;
         controllerStatus.fontStyle = FontStyle.Bold;
         controllerStatus.alignment = TextAnchor.LowerRight;
+        controllerStatus.horizontalOverflow = HorizontalWrapMode.Overflow;
         controllerStatus.color = new Color(0.9f, 0.9f, 0.9f);
-        controllerStatus.text = "КОНТРОЛЛЕР ...";
+        controllerStatus.text = "КОНТРОЛЛЕР...";
         controllerStatusGo.AddComponent<Outline>().effectColor = Color.black;
         RectTransform controllerStatusRt = controllerStatus.GetComponent<RectTransform>();
         controllerStatusRt.anchorMin = new Vector2(1f, 0f);
         controllerStatusRt.anchorMax = new Vector2(1f, 0f);
         controllerStatusRt.pivot = new Vector2(1f, 0f);
-        controllerStatusRt.sizeDelta = new Vector2(450f, 80f);
+        controllerStatusRt.sizeDelta = new Vector2(680f, 80f);
         controllerStatusRt.anchoredPosition = new Vector2(-30f, 30f);
+
+        // Large 5-4-3-2-1 while holding down to confirm СТАРТ/ТРЕНИРОВКА.
+        var menuConfirmCountdownGo = new GameObject("MenuConfirmCountdown");
+        menuConfirmCountdownGo.transform.SetParent(canvasGo.transform, false);
+        Text menuConfirmCountdown = menuConfirmCountdownGo.AddComponent<Text>();
+        menuConfirmCountdown.font = GameFont;
+        menuConfirmCountdown.fontSize = 120;
+        menuConfirmCountdown.fontStyle = FontStyle.Bold;
+        menuConfirmCountdown.alignment = TextAnchor.MiddleCenter;
+        menuConfirmCountdown.color = new Color(1f, 0.85f, 0.15f);
+        menuConfirmCountdownGo.AddComponent<Outline>().effectColor = Color.black;
+        RectTransform menuConfirmCountdownRt = menuConfirmCountdown.GetComponent<RectTransform>();
+        menuConfirmCountdownRt.anchorMin = new Vector2(0.5f, 0.5f);
+        menuConfirmCountdownRt.anchorMax = new Vector2(0.5f, 0.5f);
+        menuConfirmCountdownRt.pivot = new Vector2(0.5f, 0.5f);
+        menuConfirmCountdownRt.sizeDelta = new Vector2(150f, 150f);
+        menuConfirmCountdownRt.anchoredPosition = Vector2.zero;
+        menuConfirmCountdownGo.SetActive(false);
 
         // Start row — same two-layer structure as the other two rows now
         // (outer row frame that tints yellow when focused, inner button
@@ -3401,6 +3545,7 @@ public static class SceneSetup
         so.FindProperty("lanesRowBg").objectReferenceValue = lanesRowBg;
         so.FindProperty("controllerStatusText").objectReferenceValue = controllerStatus;
         so.FindProperty("menuHelpText").objectReferenceValue = menuHelp;
+        so.FindProperty("menuConfirmCountdownText").objectReferenceValue = menuConfirmCountdown;
         so.FindProperty("notImplementedText").objectReferenceValue = notImplemented;
         so.FindProperty("startBg").objectReferenceValue = startBtn.GetComponent<Image>();
         so.FindProperty("startText").objectReferenceValue = startBtn.GetComponentInChildren<Text>();
@@ -3950,7 +4095,7 @@ public static class SceneSetup
     // tilt — anchoredPosition offsets aren't affected by the object's own
     // rotation. Returns the palm's RectTransform so a caller can wire it
     // into a live animation instead of just a static pose.
-    static RectTransform CreateSensorGlyph(Transform parent, Vector2 anchoredPos, float palmOffset, float scale = 1f, float tiltAngle = 0f)
+    static RectTransform CreateSensorGlyph(Transform parent, Vector2 anchoredPos, float palmOffset, float scale = 1f, float tiltAngle = 0f, float widthScale = 1f)
     {
         var laserGo = new GameObject("Laser");
         laserGo.transform.SetParent(parent, false);
@@ -3971,7 +4116,7 @@ public static class SceneSetup
         palmRt.anchorMin = new Vector2(0.5f, 0.5f);
         palmRt.anchorMax = new Vector2(0.5f, 0.5f);
         palmRt.pivot = new Vector2(0.5f, 0.5f);
-        palmRt.sizeDelta = new Vector2(70f * scale, 16f * scale);
+        palmRt.sizeDelta = new Vector2(70f * scale * widthScale, 16f * scale);
         palmRt.anchoredPosition = anchoredPos + new Vector2(0f, palmOffset);
         palmRt.localRotation = Quaternion.Euler(0f, 0f, tiltAngle);
         return palmRt;
@@ -3981,7 +4126,7 @@ public static class SceneSetup
     // red-ball-on-black-base arcade joystick, replacing the earlier flat
     // procedural base/shaft/knob composition (see git history) with
     // something that actually reads as a physical joystick at a glance.
-    static void CreateJoystickIcon(Transform parent, Vector2 pos)
+    static void CreateJoystickIcon(Transform parent, Vector2 pos, float scale = 1f, float widthScale = 1f)
     {
         Texture2D tex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/Joystick.png");
 
@@ -3994,8 +4139,8 @@ public static class SceneSetup
         rt.anchorMax = new Vector2(0.5f, 0.5f);
         rt.pivot = new Vector2(0.5f, 0.5f);
         float aspect = tex != null ? (float)tex.width / tex.height : 0.875f;
-        rt.sizeDelta = new Vector2(160f * aspect, 160f);
-        rt.anchoredPosition = pos + new Vector2(0f, -5f);
+        rt.sizeDelta = new Vector2(160f * aspect * scale * widthScale, 160f * scale);
+        rt.anchoredPosition = pos + new Vector2(0f, -5f * scale);
     }
 
     static void CreateControlsSubLabel(Transform parent, Vector2 pos, string text, int fontSize = 26, float boxWidth = 320f)
@@ -4014,8 +4159,30 @@ public static class SceneSetup
         rt.anchorMin = new Vector2(0.5f, 0.5f);
         rt.anchorMax = new Vector2(0.5f, 0.5f);
         rt.pivot = new Vector2(0.5f, 0.5f);
-        rt.sizeDelta = new Vector2(boxWidth, 40f);
+        rt.sizeDelta = new Vector2(boxWidth, Mathf.Max(40f, fontSize + 12f));
         rt.anchoredPosition = pos;
+    }
+
+    // Same copy as MenuHelpText on the live menu (StartScreenController) —
+    // shown once in the upfront carousel after СУТЬ/ЦЕЛЬ so players read it
+    // before the object/controls pages; the bottom-left hint stays too.
+    // Checklist rows + ИГРОК 1/2 labels mirror how the live menu maps keys.
+    static GameObject CreateMenuSelectionPage(Transform parent)
+    {
+        GameObject page = CreateFillPage(parent, "Page_MenuSelection");
+
+        CreatePageTitle(page.transform, "ВЫБОР В МЕНЮ", new Color(1f, 0.85f, 0.2f));
+
+        const int sectionFontSize = 40;
+        CreateControlsSubLabel(page.transform, new Vector2(0f, 150f), "ВЫБОР:", sectionFontSize, 420f);
+        CreateChecklistRow(page.transform, 75f, "ИГРОК 1: WASD");
+        CreateChecklistRow(page.transform, 10f, "ИГРОК 2: IJKL");
+
+        CreateControlsSubLabel(page.transform, new Vector2(0f, -60f), "НАЧАЛО:", sectionFontSize, 420f);
+        CreateChecklistRow(page.transform, -125f, "ВЫБРАТЬ СТАРТ ИЛИ ТРЕНИРОВКА");
+        CreateChecklistRow(page.transform, -190f, "И ДЕРЖАТЬ ВНИЗ 5 СЕК");
+
+        return page;
     }
 
     // УПРАВЛЕНИЕ: keeps the original 2-line keyboard mapping (top/bottom,
@@ -4031,33 +4198,30 @@ public static class SceneSetup
 
         CreatePageTitle(page.transform, "УПРАВЛЕНИЕ", new Color(1f, 0.85f, 0.2f));
 
-        // No keyboard-mapping rows and no "ТО ЖЕ САМОЕ" line anymore — the
-        // gesture pages right before this one in the carousel (see
-        // CreateStartScreen's page order) already cover the actual moves in
-        // full; this page is purely "which hardware reads which player"
-        // now. Each checkbox sits above its own 2-line label stack (not
-        // beside a single line, like CreateWinCheckRow's rows) — checkbox,
-        // then player, then hardware, read top to bottom.
-        // Player columns pushed further out toward the page's own edges
-        // (was ±260) so the two rigs read as clearly separate setups
-        // instead of crowding the middle — still well clear of the page's
-        // ±700 half-width even with the sensor/joystick art's own spread.
+        // Player columns: no checkboxes (only the exit block keeps one).
+        // Labels sit higher now; icons sit lower with a clear gap so the
+        // laser/joystick art doesn't creep into the hardware line above.
         const float playerX = 400f;
+        const int blockFontSize = 34;
+        const float iconScale = 1.3f;
+        const float sensorIconY = -38f;
+        const float sensorSpread = 58f;
+        const float sensorWidthScale = 0.88f;
+        const float joystickIconY = -58f;
+        const float joystickWidthScale = 1.34f;
 
-        CreateVerticalCheck(page.transform, new Vector2(-playerX, 200f));
-        CreateControlsSubLabel(page.transform, new Vector2(-playerX, 130f), "ИГРОК 1");
-        CreateControlsSubLabel(page.transform, new Vector2(-playerX, 75f), "ДАТЧИКИ");
-        CreateSensorGlyph(page.transform, new Vector2(-playerX - 55f, -35f), -40f);
-        CreateSensorGlyph(page.transform, new Vector2(-playerX + 55f, -35f), 40f);
+        CreateControlsSubLabel(page.transform, new Vector2(-playerX, 175f), "ИГРОК 1", blockFontSize);
+        CreateControlsSubLabel(page.transform, new Vector2(-playerX, 105f), "ДАТЧИКИ", blockFontSize);
+        CreateSensorGlyph(page.transform, new Vector2(-playerX - sensorSpread, sensorIconY), -52f, iconScale, 0f, sensorWidthScale);
+        CreateSensorGlyph(page.transform, new Vector2(-playerX + sensorSpread, sensorIconY), 52f, iconScale, 0f, sensorWidthScale);
 
-        CreateVerticalCheck(page.transform, new Vector2(playerX, 200f));
-        CreateControlsSubLabel(page.transform, new Vector2(playerX, 130f), "ИГРОК 2");
-        CreateControlsSubLabel(page.transform, new Vector2(playerX, 75f), "ДЖОЙСТИК");
-        CreateJoystickIcon(page.transform, new Vector2(playerX, -35f));
+        CreateControlsSubLabel(page.transform, new Vector2(playerX, 175f), "ИГРОК 2", blockFontSize);
+        CreateControlsSubLabel(page.transform, new Vector2(playerX, 105f), "ДЖОЙСТИК", blockFontSize);
+        CreateJoystickIcon(page.transform, new Vector2(playerX, joystickIconY), iconScale, joystickWidthScale);
 
-        CreateVerticalCheck(page.transform, new Vector2(0f, -165f));
-        CreateControlsSubLabel(page.transform, new Vector2(0f, -235f), "ВЫХОД", 34);
-        CreateControlsSubLabel(page.transform, new Vector2(0f, -295f), "ПРИСЕСТЬ ОБОИМ НА 5 СЕКУНД", 34, 620f);
+        CreateVerticalCheck(page.transform, new Vector2(0f, -130f));
+        CreateControlsSubLabel(page.transform, new Vector2(0f, -200f), "ВЫХОД", blockFontSize);
+        CreateControlsSubLabel(page.transform, new Vector2(0f, -260f), "ПРИСЕСТЬ ОБОИМ НА 5 СЕКУНД", blockFontSize, 620f);
 
         return page;
     }

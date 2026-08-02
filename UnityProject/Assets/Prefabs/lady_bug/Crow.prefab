@@ -248,7 +248,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   laneWidth: 4
-  laneCount: 1
+  laneCount: 4
   moveSpeed: 1.5
   minDelay: 1.5
   maxDelay: 4

@@ -42,12 +42,13 @@ public class ShoulderTintScroller : MonoBehaviour
     [SerializeField] private bool roadEdgeAtHighU;
 
     public const float EdgeWaveAmp = 0.04f;
-    public const float EdgeWaveFreq = 13f;
+    public const float EdgeWaveFreq = 5f;
     public const float EdgeAmpVarAmount = 1f;
     public const float EdgeInset = 0f;
     public const float EdgeAmpScaleMax = 2.15f * 1.55f;
     public const float EdgeInsetJitterMax = 0.012f;
     public const float EdgeSoftness = 0.032f;
+    public const float EdgeBlurRadius = 0.014f;
 
     /// <summary>Max road-facing protrusion in strip UV — matches shader peak amplitude.</summary>
     public static float MaxRoadEdgeOverlapUv =>
@@ -62,6 +63,7 @@ public class ShoulderTintScroller : MonoBehaviour
     static readonly int EdgeWaveFreqId = Shader.PropertyToID("_EdgeWaveFreq");
     static readonly int EdgeAmpVarId = Shader.PropertyToID("_EdgeAmpVar");
     static readonly int EdgeSoftnessId = Shader.PropertyToID("_EdgeSoftness");
+    static readonly int EdgeBlurRadiusId = Shader.PropertyToID("_EdgeBlurRadius");
 
     private Material _material;
     private Vector2 _offset;
@@ -117,6 +119,7 @@ public class ShoulderTintScroller : MonoBehaviour
         _material.SetFloat(EdgeWaveFreqId, EdgeWaveFreq);
         _material.SetFloat(EdgeAmpVarId, EdgeAmpVarAmount);
         _material.SetFloat(EdgeSoftnessId, EdgeSoftness);
+        _material.SetFloat(EdgeBlurRadiusId, EdgeBlurRadius);
 
         _material.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
     }

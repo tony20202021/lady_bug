@@ -156,7 +156,7 @@ MonoBehaviour:
   destroyZ: -20
   wingSpan: 2
   wingFlapSpeed: 10
-  wingDropMin: 0.38
+  wingDropMin: -1.1
   wingDropMax: 1.15
   wingBow: 0.14
   wingSegments: 8

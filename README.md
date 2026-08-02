@@ -5,23 +5,23 @@
 
 ## Документация
 - [docs/technical-details.md](docs/technical-details.md) — технические детали для
-  ИИ-агентов: **как подключиться к проекту агентом** (MCP и запасной вариант
-  через файловую систему), как устроена разработка (инструменты, ограничения,
-  почему сцена собирается кодом через `Tools → Rebuild Scene`, а не руками),
-  и как устроена сама игра (механики, архитектура, файл за файлом).
-- [docs/game-brief.md](docs/game-brief.md) — бриф/анкета курса по игре.
+  ИИ-агентов: подключение к проекту, разработка (`Tools → Rebuild Scene`),
+  механики, архитектура кода.
+- [docs/game-brief.md](docs/game-brief.md) — бриф/анкета по игре.
+- [docs/hardware-wiring.md](docs/hardware-wiring.md) — разводка Arduino,
+  прошивки, Serial-протокол, меню и отладка железа.
 
 ## Структура
-- `UnityProject/` — чистый Unity-проект, открывать через Unity Hub именно эту
-  папку (скрипты в `UnityProject/Assets/Scripts`, генератор сцены в
-  `UnityProject/Assets/Editor/SceneSetup.cs`).
-- `RawAssets/` — сырые исходники арта (кадры из `.swf`, скачанные картинки) до
-  конвертации в спрайты в `UnityProject/Assets/Sprites`.
-- `docs/` — вся документация проекта.
+- `UnityProject/` — Unity-проект (скрипты в `Assets/Scripts`, генератор сцены
+  в `Assets/Editor/SceneSetup.cs`).
+- `ArduinoFirmware/` — прошивки CombinedBoard / GestureSensors / Joystick.
+- `RawAssets/` — сырые исходники арта до конвертации в `Assets/Sprites`.
+- `docs/` — документация.
 
 ## Быстрый старт
-Открыть `UnityProject/` в Unity Hub (Unity 6000.0.78f1), затем **Tools →
-Rebuild Scene** — соберёт `Assets/Scenes/Main.unity` с нуля из кода (сцена
-не хранится вручную). После изменений в `SceneSetup.cs` — повторить Rebuild
-Scene; после изменений только в `Assets/Scripts/*.cs` — Unity подхватывает
-сама, пересборка сцены не нужна.
+Открыть `UnityProject/` в Unity Hub (Unity **6000.0.78f1**), затем
+**Tools → Rebuild Scene**. После правок только в `Assets/Scripts/*.cs` —
+Unity подхватывает сама; после `SceneSetup.cs` — повторить Rebuild Scene.
+
+**Отладочная цель забега:** сейчас **1 км** (`WinSequence.WinSegmentDistanceKm`);
+релиз — 100 км.

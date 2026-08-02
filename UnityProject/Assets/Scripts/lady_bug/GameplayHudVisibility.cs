@@ -9,6 +9,13 @@ public static class GameplayHudVisibility
         "DistancePanel", "TimerPanel", "GearSpeedPanel", "ScorePanel", "RightHubPlaceholder",
     };
 
+    public static bool IsHardwareConnected()
+    {
+        bool sensorsConnected = GestureSensorSerial.Instance != null && GestureSensorSerial.Instance.IsConnected;
+        bool joystickConnected = JoystickSerial.Instance != null && JoystickSerial.Instance.IsConnected;
+        return sensorsConnected || joystickConnected;
+    }
+
     public static void SetGameplayHudVisible(bool visible)
     {
         SetWedgePanelsVisible(visible);
@@ -39,11 +46,12 @@ public static class GameplayHudVisibility
 
     public static void SetGestureHudVisible(bool visible)
     {
+        bool show = visible && IsHardwareConnected();
         foreach (string playerName in new[] { "PlayerLeft", "PlayerRight" })
         {
             GameObject gestureCanvas = FindSceneRoot(playerName + "GestureCanvas");
             if (gestureCanvas != null)
-                gestureCanvas.SetActive(visible);
+                gestureCanvas.SetActive(show);
         }
     }
 

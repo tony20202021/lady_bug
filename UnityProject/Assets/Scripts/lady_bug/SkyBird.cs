@@ -9,7 +9,7 @@ public class SkyBird : MonoBehaviour
     [SerializeField] private float destroyZ = -20f;
     [SerializeField] private float wingSpan = 2.0f;
     [SerializeField] private float wingFlapSpeed = 10f;
-    [SerializeField] private float wingDropMin = 0.38f;
+    [SerializeField] private float wingDropMin = -1.1f;
     [SerializeField] private float wingDropMax = 1.15f;
     [SerializeField] private float wingBow = 0.14f; // subtle mid-wing arch upward (0 = straight)
     [SerializeField] private int wingSegments = 8; // LineRenderer has no arc primitive — more points = smoother curve
@@ -103,7 +103,9 @@ public class SkyBird : MonoBehaviour
     {
         float x = side * t * halfSpan;
         float y = t * wingDrop;
-        float bow = Mathf.Sin(t * Mathf.PI) * wingDrop * bowAmount;
+        // Bow always arches upward — on the downstroke wingDrop is negative
+        // and used to flip the bow downward; use |wingDrop| for bow only.
+        float bow = Mathf.Sin(t * Mathf.PI) * Mathf.Abs(wingDrop) * bowAmount;
         return new Vector3(x, y + bow, 0f);
     }
 }

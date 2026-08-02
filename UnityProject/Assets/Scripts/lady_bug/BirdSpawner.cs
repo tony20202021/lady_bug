@@ -10,6 +10,8 @@ public class BirdSpawner : MonoBehaviour
     [SerializeField] private float minY = 14f;
     [SerializeField] private float maxY = 22f;
     [SerializeField] private float spawnZ = 95f;
+    // Overlaps CloudSpawner depth so birds and clouds randomly occlude each other.
+    [SerializeField] private float spawnZJitter = 7f;
     [SerializeField] private float minInterval = 2.5f;
     [SerializeField] private float maxInterval = 6f;
     [SerializeField] private int minSpawnCount = 1;
@@ -53,7 +55,8 @@ public class BirdSpawner : MonoBehaviour
     {
         float x = Random.Range(minX, maxX);
         float y = Random.Range(minY, maxY);
-        Vector3 pos = new Vector3(x, y, spawnZ);
+        float z = spawnZ + Random.Range(-spawnZJitter, spawnZJitter);
+        Vector3 pos = new Vector3(x, y, z);
         GameObject instance = Instantiate(prefab, pos, Quaternion.identity);
 
         SkyBird bird = instance.GetComponent<SkyBird>();

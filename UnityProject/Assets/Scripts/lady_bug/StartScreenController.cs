@@ -35,6 +35,7 @@ public class StartScreenController : MonoBehaviour
 
     [SerializeField] private Text controllerStatusText;
     [SerializeField] private Text menuHelpText;
+    [SerializeField] private Text menuConfirmCountdownText;
 
     [SerializeField] private Image startBg;
     [SerializeField] private Text startText;
@@ -52,10 +53,8 @@ public class StartScreenController : MonoBehaviour
     [SerializeField] private Text trainingExitCountdownText;
     // Same 2-phase feel as DuckToExitController's own real-game exit —
     // first TrainingExitSilentPhase seconds show nothing at all, then a
-    // visible 5,4,3,2,1 countdown for TrainingExitCountdownPhase more,
-    // per feedback (was one flat 5s hold with the countdown visible the
-    // whole time).
-    private const float TrainingExitSilentPhase = 5f;
+    // visible 5,4,3,2,1 countdown for TrainingExitCountdownPhase more.
+    private const float TrainingExitSilentPhase = 3f;
     private const float TrainingExitCountdownPhase = 5f;
     private float _trainingHoldTimer;
 
@@ -139,6 +138,12 @@ public class StartScreenController : MonoBehaviour
     private float _controllerDetectElapsed;
     private bool _controllerDetectionSettled;
     private const float ControllerDetectDuration = 4f;
+    private const string ControllerDetectBase = "КОНТРОЛЛЕР";
+    private const int ControllerDetectDotMin = 3;
+    private const int ControllerDetectDotMax = 20;
+    private const float ControllerDetectDotInterval = 0.45f;
+    private int _controllerDetectDotCount = ControllerDetectDotMin;
+    private float _controllerDetectDotTimer;
     private int _appliedPreviewLaneCount;
     private int _appliedPreviewPlayers;
     private bool _roadPreviewApplied;
@@ -205,6 +210,7 @@ public class StartScreenController : MonoBehaviour
         EnsureLaneRowUI();
         EnsureControllerStatusText();
         EnsureMenuHelpText();
+        EnsureMenuConfirmCountdownText();
 
         if (_rightController != null)
             _selectedLanes = Mathf.Clamp(_rightController.LaneCount - 1, 0, LaneOptionCount - 1);
@@ -213,6 +219,8 @@ public class StartScreenController : MonoBehaviour
 
         _controllerDetectElapsed = 0f;
         _controllerDetectionSettled = false;
+        _controllerDetectDotCount = ControllerDetectDotMin;
+        _controllerDetectDotTimer = 0f;
         RefreshControllerDetection();
         UpdateVisuals();
         UpdateCarousel();
@@ -284,6 +292,18 @@ public class StartScreenController : MonoBehaviour
                 _controllerDetectionSettled = true;
                 RefreshControllerDetection();
             }
+            else if (!_useHardwareInput)
+            {
+                _controllerDetectDotTimer += Time.deltaTime;
+                if (_controllerDetectDotTimer >= ControllerDetectDotInterval)
+                {
+                    _controllerDetectDotTimer = 0f;
+                    _controllerDetectDotCount++;
+                    if (_controllerDetectDotCount > ControllerDetectDotMax)
+                        _controllerDetectDotCount = ControllerDetectDotMin;
+                    UpdateControllerStatusText();
+                }
+            }
         }
 
         _controllerPollTimer += Time.deltaTime;
@@ -345,8 +365,7 @@ public class StartScreenController : MonoBehaviour
     // down all the way just takes you straight back to the menu.
     private void UpdateTrainingScreen()
     {
-        bool holding = Input.GetKey(KeyCode.K) || Input.GetKey(KeyCode.S)
-            || IsDuckHeld(gestureRight) || IsDuckHeld(gestureLeft) || IsDuckHeld(joystickRight) || IsDuckHeld(joystickLeft);
+        bool holding = AreAllActivePlayersHoldingTrainingExit();
 
         if (!holding)
         {
@@ -422,8 +441,7 @@ public class StartScreenController : MonoBehaviour
             return;
         }
 
-        bool holding = Input.GetKey(KeyCode.K) || Input.GetKey(KeyCode.S)
-            || IsDuckHeld(gestureRight) || IsDuckHeld(gestureLeft) || IsDuckHeld(joystickRight) || IsDuckHeld(joystickLeft);
+        bool holding = AreAllActivePlayersHoldingTrainingExit();
 
         // Same 2-phase feel as the live screen's own UpdateTrainingScreen —
         // silent first, then a visible countdown — per feedback there was
@@ -782,6 +800,26 @@ public class StartScreenController : MonoBehaviour
     // to back out of training at all.
     private static bool IsDuckHeld(JoystickInput joystick) => joystick != null && joystick.enabled && joystick.DownHeld;
 
+    // Training exit: every active player must hold down together (same rule
+    // as DuckToExitController during a real run). 1-player = playerRight only;
+    // 2-player = both playerLeft and playerRight.
+    private bool AreAllActivePlayersHoldingTrainingExit()
+    {
+        if (_selectedPlayers == 1)
+            return IsPlayerHoldingTrainingExit(playerRight);
+
+        return IsPlayerHoldingTrainingExit(playerLeft) && IsPlayerHoldingTrainingExit(playerRight);
+    }
+
+    private static bool IsPlayerHoldingTrainingExit(GameObject player)
+    {
+        if (player == null || !player.activeInHierarchy)
+            return false;
+
+        var controller = player.GetComponent<PlayerController>();
+        return controller != null && controller.IsDuckInputHeld;
+    }
+
     private void AppendMenuJoystickNav(ref bool left, ref bool right)
     {
         if (JoystickSerial.Instance == null || !JoystickSerial.Instance.IsConnected)
@@ -835,18 +873,82 @@ public class StartScreenController : MonoBehaviour
         }
         else if (_prevMenuDownHeld)
         {
-            if (_menuDownHoldTimer < MenuConfirmHold && !_menuDownConfirmTriggered)
+            // Short tap = move row down; a hold (countdown attempt) must not
+            // fire navigation when the player releases early.
+            if (_menuDownHoldTimer < MenuConfirmHold
+                && !_menuDownConfirmTriggered
+                && _menuDownHoldTimer < MenuJoystickUpTapMax)
                 downEdge = true;
             ResetMenuDownHold();
         }
 
+        UpdateMenuConfirmCountdown(held);
         _prevMenuDownHeld = held;
+    }
+
+    private void UpdateMenuConfirmCountdown(bool downHeld)
+    {
+        if (menuConfirmCountdownText == null)
+            return;
+
+        bool show = downHeld
+            && _row == StartRowIndex
+            && !_menuDownConfirmTriggered
+            && _menuDownHoldTimer < MenuConfirmHold;
+
+        menuConfirmCountdownText.gameObject.SetActive(show);
+        if (!show)
+            return;
+
+        int secondsLeft = Mathf.Clamp(
+            Mathf.CeilToInt(MenuConfirmHold - _menuDownHoldTimer),
+            1,
+            Mathf.CeilToInt(MenuConfirmHold));
+        menuConfirmCountdownText.text = secondsLeft.ToString();
+        PositionMenuConfirmCountdownOverSelection();
+    }
+
+    private RectTransform GetActiveSelectionButtonRect()
+    {
+        if (_row == PlayersRowIndex)
+            return (_selectedPlayers == 1 ? option1Bg : option2Bg)?.rectTransform;
+        if (_row == LanesRowIndex && laneOptionBgs != null
+            && _selectedLanes >= 0 && _selectedLanes < laneOptionBgs.Length)
+            return laneOptionBgs[_selectedLanes]?.rectTransform;
+        if (_row == StartRowIndex)
+            return (_selectedStartOption == 0 ? startBg : trainingBg)?.rectTransform;
+        return null;
+    }
+
+    private void PositionMenuConfirmCountdownOverSelection()
+    {
+        if (menuConfirmCountdownText == null)
+            return;
+
+        RectTransform target = GetActiveSelectionButtonRect();
+        RectTransform countdownRt = menuConfirmCountdownText.rectTransform;
+        if (target == null || countdownRt == null)
+            return;
+
+        Canvas canvas = menuConfirmCountdownText.canvas;
+        if (canvas == null)
+            return;
+
+        countdownRt.SetAsLastSibling();
+
+        Vector3 worldCenter = target.TransformPoint(target.rect.center);
+        Camera cam = canvas.renderMode == RenderMode.ScreenSpaceOverlay ? null : canvas.worldCamera;
+        Vector2 screenPoint = RectTransformUtility.WorldToScreenPoint(cam, worldCenter);
+        RectTransform canvasRt = canvas.transform as RectTransform;
+        if (RectTransformUtility.ScreenPointToLocalPointInRectangle(canvasRt, screenPoint, cam, out Vector2 localPoint))
+            countdownRt.anchoredPosition = localPoint;
     }
 
     private void ResetMenuDownHold()
     {
         _menuDownHoldTimer = 0f;
         _menuDownConfirmTriggered = false;
+        UpdateMenuConfirmCountdown(false);
     }
 
     private void ResetJoystickUpHold()
@@ -1006,7 +1108,7 @@ public class StartScreenController : MonoBehaviour
         controllerStatusText.gameObject.SetActive(true);
         controllerStatusText.text = _controllerDetectionSettled
             ? "КОНТРОЛЛЕР НЕ ОБНАРУЖЕН"
-            : "КОНТРОЛЛЕР ...";
+            : ControllerDetectBase + new string('.', _controllerDetectDotCount);
     }
 
     private void UpdateMenuHelpText()
@@ -1094,7 +1196,7 @@ public class StartScreenController : MonoBehaviour
             controllerStatusText = statusGo.AddComponent<Text>();
             controllerStatusText.font = Resources.Load<Font>("lady_bug/Fonts/ComicCAT")
                 ?? Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-            controllerStatusText.text = "КОНТРОЛЛЕР ...";
+            controllerStatusText.text = ControllerDetectBase + new string('.', ControllerDetectDotMin);
             statusGo.AddComponent<Outline>().effectColor = Color.black;
         }
 
@@ -1124,17 +1226,57 @@ public class StartScreenController : MonoBehaviour
         menuHelpText.color = new Color(0.9f, 0.9f, 0.9f);
     }
 
+    private void EnsureMenuConfirmCountdownText()
+    {
+        if (menuConfirmCountdownText == null && canvasRoot != null)
+        {
+            Transform countdownTransform = canvasRoot.transform.Find("MenuConfirmCountdown");
+            if (countdownTransform != null)
+                menuConfirmCountdownText = countdownTransform.GetComponent<Text>();
+            else
+            {
+                var countdownGo = new GameObject("MenuConfirmCountdown");
+                countdownGo.transform.SetParent(canvasRoot.transform, false);
+                menuConfirmCountdownText = countdownGo.AddComponent<Text>();
+                menuConfirmCountdownText.font = Resources.Load<Font>("lady_bug/Fonts/ComicCAT")
+                    ?? Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+                countdownGo.AddComponent<Outline>().effectColor = Color.black;
+            }
+        }
+
+        if (menuConfirmCountdownText == null)
+            return;
+
+        ApplyMenuConfirmCountdownLayout(menuConfirmCountdownText);
+        menuConfirmCountdownText.gameObject.SetActive(false);
+    }
+
+    static void ApplyMenuConfirmCountdownLayout(Text text)
+    {
+        text.fontSize = 120;
+        text.fontStyle = FontStyle.Bold;
+        text.alignment = TextAnchor.MiddleCenter;
+        text.color = new Color(1f, 0.85f, 0.15f);
+        RectTransform rt = text.GetComponent<RectTransform>();
+        rt.anchorMin = new Vector2(0.5f, 0.5f);
+        rt.anchorMax = new Vector2(0.5f, 0.5f);
+        rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.sizeDelta = new Vector2(150f, 150f);
+        rt.anchoredPosition = Vector2.zero;
+    }
+
     static void ApplyControllerStatusLayout(Text text)
     {
         text.fontSize = 20;
         text.fontStyle = FontStyle.Bold;
         text.alignment = TextAnchor.LowerRight;
+        text.horizontalOverflow = HorizontalWrapMode.Overflow;
         text.color = new Color(0.9f, 0.9f, 0.9f);
         RectTransform rt = text.GetComponent<RectTransform>();
         rt.anchorMin = new Vector2(1f, 0f);
         rt.anchorMax = new Vector2(1f, 0f);
         rt.pivot = new Vector2(1f, 0f);
-        rt.sizeDelta = new Vector2(450f, 80f);
+        rt.sizeDelta = new Vector2(680f, 80f);
         rt.anchoredPosition = new Vector2(-30f, 30f);
     }
 
