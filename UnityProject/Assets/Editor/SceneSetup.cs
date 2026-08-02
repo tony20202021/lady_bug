@@ -7,10 +7,11 @@ using UnityEngine.UI;
 public static class SceneSetup
 {
     const int LaneCount = 4;
-    const float LaneWidth = 4f;
-    // Set false for production cabinet builds — skips the keyboard/sensors row
-    // on the start screen (must match StartScreenController.ShowControllerSelectionRow).
-    const bool ShowControllerSelectionRow = true;
+    static float LaneWidth => RoadLayout.LaneWidthFor(LaneCount);
+
+    static void GetStartLanes(out int startLaneRight, out int startLaneLeft) =>
+        RoadLayout.GetStartLanes(LaneCount, out startLaneRight, out startLaneLeft);
+
     const float RoadLength = 150f;
     const float RoadCenterZ = 1f;
     // World units per dash+gap cycle — was 4 (dash+gap blurred into one
@@ -24,6 +25,8 @@ public static class SceneSetup
     const float ScrollSpeed = 10f;
     const float RoadTextureTileSize = 1.5f; // world units per asphalt-texture tile — must match CreateRoadTexture's mainTextureScale divisor
     const float GrassTextureTileSize = 4f; // world units per side-grass-texture tile (Assets/Sprites/GrassTile.png)
+    // false = old Standard scroll (no UV rotation); true = lady_bug/SideGrass upright tufts.
+    const bool SideGrassUprightShader = true;
 
     // Every Text component in the game uses this instead of the engine's
     // built-in LegacyRuntime.ttf — Comic CAT (Vitaly Lazarenko, 2019),
@@ -79,18 +82,7 @@ public static class SceneSetup
         // of 0..2, skipping the middle one). For LaneCount==3 this lands on
         // the same lanes the old hardcoded "outermost" start already used,
         // so behavior only actually changes once LaneCount > 3.
-        int startLaneRight, startLaneLeft;
-        if (LaneCount % 2 == 0)
-        {
-            startLaneRight = LaneCount / 2;
-            startLaneLeft = startLaneRight - 1;
-        }
-        else
-        {
-            int midLane = LaneCount / 2;
-            startLaneRight = midLane + 1;
-            startLaneLeft = midLane - 1;
-        }
+        GetStartLanes(out int startLaneRight, out int startLaneLeft);
         // IJKL, not arrows — per feedback, player-right is now the joystick
         // player (see StartScreenController's joystickRight), and this is
         // its keyboard-only fallback; IJKL sits on the keyboard's own right
@@ -140,6 +132,59 @@ public static class SceneSetup
         EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(scenePath, true) };
 
         Debug.Log("Scene setup complete: " + scenePath);
+    }
+
+    [MenuItem("Tools/Rebuild Road Geometry")]
+    public static void RebuildRoadGeometry()
+    {
+        if (EditorApplication.isPlaying)
+        {
+            Debug.LogError("Rebuild Road Geometry: остановите Play Mode перед пересборкой.");
+            return;
+        }
+
+        foreach (var root in SceneManager.GetActiveScene().GetRootGameObjects())
+        {
+            if (root.name == "LaneDivider" ||
+                root.name is "RoadSurface" or "SideGroundLeft" or "SideGroundRight" or
+                "RoadShoulderLeft" or "RoadShoulderRight" or
+                "ShoulderDecorSpawner" or "GrassDecorSpawner")
+                Object.DestroyImmediate(root);
+        }
+
+        CreateRoad();
+        CreateSideGround();
+        CreateRoadShoulder();
+        CreateShoulderDecor();
+        CreateBigArchPrefab();
+
+        GetStartLanes(out int startLaneRight, out int startLaneLeft);
+
+        foreach (var player in Object.FindObjectsOfType<PlayerController>())
+        {
+            SerializedObject so = new SerializedObject(player);
+            so.FindProperty("laneCount").intValue = LaneCount;
+            int startLane = player.name == "PlayerRight" ? startLaneRight : startLaneLeft;
+            so.FindProperty("startLane").intValue = startLane;
+            so.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        foreach (var spawner in Object.FindObjectsOfType<EntitySpawner>())
+        {
+            SerializedObject so = new SerializedObject(spawner);
+            so.FindProperty("laneCount").intValue = LaneCount;
+            so.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        foreach (var spawner in Object.FindObjectsOfType<SideScenerySpawner>())
+        {
+            SerializedObject so = new SerializedObject(spawner);
+            so.FindProperty("sideOffset").floatValue = LaneCount * LaneWidth / 2f + 2f;
+            so.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        EditorSceneManager.MarkSceneDirty(SceneManager.GetActiveScene());
+        Debug.Log("Road geometry rebuilt for " + LaneCount + " lanes.");
     }
 
     static void CreateSpeedController()
@@ -470,6 +515,11 @@ public static class SceneSetup
         return sprite.transform;
     }
 
+    const float MainCameraY = 4f;
+    const float MainCameraZ = -8f;
+    static readonly Vector3 MainCameraPosition = new Vector3(0f, MainCameraY, MainCameraZ);
+    static readonly Vector3 MainCameraLookAt = new Vector3(0f, 0.5f, 20f);
+
     static void CreateCamera(Transform lookTarget)
     {
         var camGo = new GameObject("Main Camera");
@@ -480,11 +530,11 @@ public static class SceneSetup
         // of this. Matches that image's own top color in case of any edge
         // gap instead of Unity's plain default procedural skybox gradient.
         cam.clearFlags = CameraClearFlags.SolidColor;
-        cam.backgroundColor = new Color(0.1f, 0.75f, 0.85f);
+        cam.backgroundColor = Color.black;
         cam.fieldOfView = 60f;
         cam.farClipPlane = 1500f;
-        camGo.transform.position = new Vector3(0f, 4f, -8f);
-        camGo.transform.LookAt(new Vector3(0f, 0.5f, 20f));
+        camGo.transform.position = MainCameraPosition;
+        camGo.transform.LookAt(MainCameraLookAt);
         camGo.AddComponent<AudioListener>();
     }
 
@@ -542,38 +592,60 @@ public static class SceneSetup
     {
         float roadWidth = LaneCount * LaneWidth;
         const float sideWidth = 140f;
+        float grassCenterOffset = RoadGeometryRuntime.GrassCenterOffset;
         // Real generated cartoon grass artwork (yandex_api/gen_asset.sh,
         // Assets/Sprites/GrassTile.png — small tufts scattered over a flat
         // green base, tiles reasonably cleanly) instead of a flat color —
         // a plain fill read as "green plastic", not grass, from any
         // distance close enough to actually see it.
         Texture2D grassTexture = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/GrassTile.png");
+        Shader grassShader = SideGrassUprightShader
+            ? Shader.Find("lady_bug/SideGrass") ?? Shader.Find("Standard") ?? Shader.Find("Diffuse")
+            : Shader.Find("Standard") ?? Shader.Find("Diffuse");
+        System.IO.Directory.CreateDirectory("Assets/Materials/lady_bug");
+
         foreach (float side in new[] { -1f, 1f })
         {
-            GameObject ground = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            ground.name = side < 0 ? "SideGroundLeft" : "SideGroundRight";
-            float x = side * (roadWidth / 2f + sideWidth / 2f);
-            ground.transform.position = new Vector3(x, -0.05f, RoadCenterZ);
-            ground.transform.localScale = new Vector3(sideWidth, 0.1f, RoadLength);
-            Object.DestroyImmediate(ground.GetComponent<Collider>());
-
-            Renderer renderer = ground.GetComponent<Renderer>();
-            Shader shader = Shader.Find("Standard") ?? Shader.Find("Diffuse");
-            Material material = new Material(shader) { color = new Color(0.55f, 0.72f, 0.35f) };
+            bool isLeft = side < 0f;
+            Material grassMaterial = new Material(grassShader) { color = new Color(0.55f, 0.72f, 0.35f) };
             if (grassTexture != null)
             {
-                material.mainTexture = grassTexture;
-                material.mainTextureScale = new Vector2(sideWidth / GrassTextureTileSize, RoadLength / GrassTextureTileSize);
+                grassMaterial.mainTexture = grassTexture;
+                grassMaterial.mainTextureScale = new Vector2(sideWidth / GrassTextureTileSize, RoadLength / GrassTextureTileSize);
             }
-            renderer.sharedMaterial = material;
+            if (SideGrassUprightShader && grassShader.name.Contains("SideGrass"))
+            {
+                grassMaterial.SetFloat("_StrokeRotation", -44f);
+                grassMaterial.SetFloat("_PerspectiveSkew", 0.38f);
+                grassMaterial.SetFloat("_SideSign", isLeft ? 1f : -1f);
+            }
+
+            string grassMatPath = isLeft
+                ? "Assets/Materials/lady_bug/SideGrassLeft.mat"
+                : "Assets/Materials/lady_bug/SideGrassRight.mat";
+            AssetDatabase.DeleteAsset(grassMatPath);
+            AssetDatabase.CreateAsset(grassMaterial, grassMatPath);
+            Material sideGrassMaterial = AssetDatabase.LoadAssetAtPath<Material>(grassMatPath);
+
+            GameObject ground = new GameObject(isLeft ? "SideGroundLeft" : "SideGroundRight");
+            float x = side * (roadWidth / 2f + grassCenterOffset);
+            ground.transform.position = new Vector3(x, -0.052f, RoadCenterZ);
+            ground.transform.localScale = new Vector3(sideWidth, 0.1f, RoadLength);
+
+            MeshFilter meshFilter = ground.AddComponent<MeshFilter>();
+            meshFilter.sharedMesh = ScrollingTexture.StripMesh;
+            Renderer renderer = ground.AddComponent<MeshRenderer>();
+            renderer.sharedMaterial = sideGrassMaterial;
 
             // Same trick as the road surface (CreateRoad) — the strip itself
             // never moves, but its texture offset animates so the grass
             // streams past at the same rate as everything else on the road,
             // instead of looking frozen next to it.
-            ScrollingTexture grassScroller = ground.AddComponent<ScrollingTexture>();
-            SerializedObject grassSo = new SerializedObject(grassScroller);
+            ScrollingTexture scroller = ground.AddComponent<ScrollingTexture>();
+            scroller.EnsureStripMesh();
+            SerializedObject grassSo = new SerializedObject(scroller);
             grassSo.FindProperty("dashPeriod").floatValue = GrassTextureTileSize;
+            grassSo.FindProperty("flipVertical").boolValue = false;
             grassSo.ApplyModifiedPropertiesWithoutUndo();
         }
     }
@@ -588,10 +660,7 @@ public static class SceneSetup
     static void CreateRoadShoulder()
     {
         float roadWidth = LaneCount * LaneWidth;
-        const float shoulderWidth = 2.5f;
-        const float pavementOverlap = 0.5f;
-        // Procedural tint bands via Custom/ShoulderTint + ShoulderTintScroller
-        // on ShoulderTile.png — no baked ShoulderTileVariants.png needed.
+        float shoulderRenderWidth = RoadGeometryRuntime.ShoulderRenderWidth;
         Texture2D shoulderTexture = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/ShoulderTile.png");
         if (shoulderTexture == null)
             return;
@@ -605,28 +674,29 @@ public static class SceneSetup
 
         foreach (float side in new[] { -1f, 1f })
         {
-            GameObject shoulder = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            shoulder.name = side < 0 ? "RoadShoulderLeft" : "RoadShoulderRight";
-            float centerOffset = shoulderWidth / 2f - pavementOverlap;
+            GameObject shoulder = new GameObject(side < 0 ? "RoadShoulderLeft" : "RoadShoulderRight");
+            float centerOffset = RoadGeometryRuntime.ShoulderCenterOffset;
             float x = side * (roadWidth / 2f + centerOffset);
-            shoulder.transform.position = new Vector3(x, -0.03f, RoadCenterZ);
-            shoulder.transform.localScale = new Vector3(shoulderWidth, 0.1f, RoadLength);
-            Object.DestroyImmediate(shoulder.GetComponent<Collider>());
+            shoulder.transform.position = new Vector3(x, -0.048f, RoadCenterZ);
+            shoulder.transform.localScale = new Vector3(shoulderRenderWidth, 0.1f, RoadLength);
 
-            Renderer renderer = shoulder.GetComponent<Renderer>();
+            MeshFilter meshFilter = shoulder.AddComponent<MeshFilter>();
+            meshFilter.sharedMesh = ShoulderTintScroller.StripMesh;
+            Renderer renderer = shoulder.AddComponent<MeshRenderer>();
             Material material = new Material(shoulderShader)
             {
                 mainTexture = shoulderTexture,
-                mainTextureScale = new Vector2(
-                    shoulderWidth / GrassTextureTileSize,
-                    RoadLength / GrassTextureTileSize)
+                // One full tile across shoulder width — a partial tile (2.5/4)
+                // sliced stones at the inner/outer strip edges.
+                mainTextureScale = new Vector2(1f, RoadLength / GrassTextureTileSize)
             };
             renderer.sharedMaterial = material;
 
             ShoulderTintScroller scroller = shoulder.AddComponent<ShoulderTintScroller>();
             SerializedObject shoulderSo = new SerializedObject(scroller);
             shoulderSo.FindProperty("scrollPeriod").floatValue = GrassTextureTileSize;
-            shoulderSo.FindProperty("tileWorldSize").floatValue = GrassTextureTileSize;
+            shoulderSo.FindProperty("flipVertical").boolValue = false;
+            shoulderSo.FindProperty("roadEdgeAtHighU").boolValue = side < 0f;
             shoulderSo.ApplyModifiedPropertiesWithoutUndo();
         }
     }
@@ -666,6 +736,7 @@ public static class SceneSetup
         }
 
         float roadWidth = LaneCount * LaneWidth;
+        const float shoulderGap = RoadGeometryRuntime.ShoulderGap;
 
         if (shoulderPrefabs.Count > 0)
         {
@@ -675,7 +746,7 @@ public static class SceneSetup
             SetPrefabArray(so, "prefabs", shoulderPrefabs);
             so.FindProperty("roadHalfWidth").floatValue = roadWidth / 2f;
             so.FindProperty("shoulderWidth").floatValue = 2.5f;
-            so.FindProperty("pavementOverlap").floatValue = 0.5f;
+            so.FindProperty("shoulderGap").floatValue = shoulderGap;
             so.FindProperty("spawnZ").floatValue = RoadCenterZ + RoadLength / 2f - 5f;
             so.ApplyModifiedPropertiesWithoutUndo();
         }
@@ -688,7 +759,7 @@ public static class SceneSetup
             SetPrefabArray(grassSo, "prefabs", grassPrefabs);
             grassSo.FindProperty("roadHalfWidth").floatValue = roadWidth / 2f;
             grassSo.FindProperty("shoulderWidth").floatValue = 2.5f;
-            grassSo.FindProperty("pavementOverlap").floatValue = 0.5f;
+            grassSo.FindProperty("shoulderGap").floatValue = shoulderGap;
             grassSo.FindProperty("spawnZ").floatValue = RoadCenterZ + RoadLength / 2f - 5f;
             grassSo.ApplyModifiedPropertiesWithoutUndo();
         }
@@ -938,7 +1009,7 @@ public static class SceneSetup
         SetPrefabArray(so, "badJumpPrefabs", badJumpPrefabs);
         SetPrefabArray(so, "badDuckPrefabs", badDuckPrefabs);
         so.FindProperty("laneCount").intValue = LaneCount;
-        so.FindProperty("laneWidth").floatValue = LaneWidth;
+        so.FindProperty("laneWidth").floatValue = RoadLayout.LaneWidthFor(LaneCount);
         so.FindProperty("spawnZ").floatValue = RoadCenterZ + RoadLength / 2f - 5f;
         so.ApplyModifiedPropertiesWithoutUndo();
     }
@@ -1015,6 +1086,22 @@ public static class SceneSetup
         SetPrefabArray(so, "prefabs", prefabs);
         so.ApplyModifiedPropertiesWithoutUndo();
 
+        GameObject birdPrefab = CreateBirdPrefab();
+        if (birdPrefab != null)
+        {
+            var birdSpawnerGo = new GameObject("BirdSpawner");
+            BirdSpawner birdSpawner = birdSpawnerGo.AddComponent<BirdSpawner>();
+            SerializedObject birdSo = new SerializedObject(birdSpawner);
+            birdSo.FindProperty("prefab").objectReferenceValue = birdPrefab;
+            birdSo.FindProperty("minInterval").floatValue = 2.5f;
+            birdSo.FindProperty("maxInterval").floatValue = 6f;
+            birdSo.FindProperty("minSpawnCount").intValue = 1;
+            birdSo.FindProperty("maxSpawnCount").intValue = 2;
+            birdSo.FindProperty("initialMinCount").intValue = 4;
+            birdSo.FindProperty("initialMaxCount").intValue = 8;
+            birdSo.ApplyModifiedPropertiesWithoutUndo();
+        }
+
         // Sun removed from the scene per feedback — CreateSunSprite/SunArc
         // stay in place (not deleted) in case it comes back.
     }
@@ -1056,16 +1143,53 @@ public static class SceneSetup
         return prefab;
     }
 
-    // One big painted backdrop (yandex_api/gen_asset.sh, generated opaque —
-    // gen_asset.sh's own background param defaults to transparent, wrong
-    // for a full-frame sky) instead of Unity's plain default procedural
-    // skybox gradient — a cheerful blue-to-warm-yellow gradient with a few
-    // sparkles and a soft glow, per feedback that the sky should be more
-    // fun. Sits far behind the clouds/road, at a height chosen so it stays
-    // in the upper part of the frame despite the camera's own gentle
-    // downward tilt (see CreateCamera) — generously oversized so there's
-    // no visible gap at the frame edges even if this math is slightly off,
-    // rather than risking a hole showing the flat fallback color.
+    static GameObject CreateBirdPrefab()
+    {
+        const string name = "SkyBird";
+        var root = new GameObject(name);
+        SkyBird bird = root.AddComponent<SkyBird>();
+        SerializedObject birdSo = new SerializedObject(bird);
+        birdSo.FindProperty("wingSpan").floatValue = 2.0f;
+        birdSo.FindProperty("wingDropMin").floatValue = 0.38f;
+        birdSo.FindProperty("wingDropMax").floatValue = 1.15f;
+        birdSo.FindProperty("wingBow").floatValue = 0.14f;
+        birdSo.FindProperty("wingSegments").intValue = 8;
+        birdSo.FindProperty("bobAmplitude").floatValue = 0.65f;
+        birdSo.ApplyModifiedPropertiesWithoutUndo();
+
+        LineRenderer line = root.GetComponent<LineRenderer>();
+        line.numCornerVertices = 4;
+        line.numCapVertices = 2;
+        line.useWorldSpace = false;
+        Shader shader = Shader.Find("Sprites/Default") ?? Shader.Find("Unlit/Color");
+        Material material = new Material(shader) { color = new Color(0.12f, 0.12f, 0.16f, 0.9f) };
+
+        System.IO.Directory.CreateDirectory("Assets/Materials/lady_bug");
+        string materialPath = "Assets/Materials/lady_bug/" + name + ".mat";
+        AssetDatabase.DeleteAsset(materialPath);
+        AssetDatabase.CreateAsset(material, materialPath);
+        line.material = material;
+        line.startColor = material.color;
+        line.endColor = material.color;
+
+        string savePath = "Assets/Prefabs/lady_bug/" + name + ".prefab";
+        GameObject prefab = PrefabUtility.SaveAsPrefabAsset(root, savePath);
+        Object.DestroyImmediate(root);
+        return prefab;
+    }
+
+    // Painted sky backdrop — full SkyBackground.png (UV 0–1) on a quad that
+    // covers only the frame above the road vanishing point. Bottom edge aligns
+    // with the far end of RoadSurface (z = RoadCenterZ + RoadLength/2), not
+    // y=0 at infinity — that mismatch caused the black band. Camera clear
+    // stays black below the horizon (and in ground-strip gaps).
+    const float SkyBackdropZ = 400f;
+    const float SkyBackdropCenterY = 82f;
+    const float SkyBackdropHeight = 195f;
+    const float SkyBackdropWidth = 1170f;
+    // Hide texture below the sun disc (~centroid V≈0.18 in Unity UV space).
+    const float SkyBackdropCropMinV = 0.28f;
+
     static void CreateSkyBackground()
     {
         Texture2D tex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/SkyBackground.png");
@@ -1076,18 +1200,24 @@ public static class SceneSetup
         }
 
         var sky = new GameObject("SkyBackground");
-        sky.transform.position = new Vector3(0f, 100f, 400f);
+        sky.transform.position = new Vector3(0f, SkyBackdropCenterY, SkyBackdropZ);
+        // Face the camera so the backdrop is parallel to the view plane —
+        // an axis-aligned wall at z=400 looked tilted because the camera
+        // pitches down toward the road.
+        sky.transform.LookAt(MainCameraPosition);
 
         GameObject sprite = GameObject.CreatePrimitive(PrimitiveType.Quad);
         sprite.name = "Sprite";
         Object.DestroyImmediate(sprite.GetComponent<Collider>());
         sprite.transform.SetParent(sky.transform);
         sprite.transform.localPosition = Vector3.zero;
-        sprite.transform.localScale = new Vector3(1600f, 1000f, 1f);
+        sprite.transform.localScale = new Vector3(SkyBackdropWidth, SkyBackdropHeight, 1f);
 
         Renderer renderer = sprite.GetComponent<Renderer>();
         Shader shader = Shader.Find("Legacy Shaders/Diffuse") ?? Shader.Find("Standard");
         Material material = new Material(shader) { mainTexture = tex };
+        material.mainTextureScale = new Vector2(1f, 1f - SkyBackdropCropMinV);
+        material.mainTextureOffset = new Vector2(0f, SkyBackdropCropMinV);
 
         System.IO.Directory.CreateDirectory("Assets/Materials/lady_bug");
         string materialPath = "Assets/Materials/lady_bug/SkyBackground.mat";
@@ -2614,6 +2744,7 @@ public static class SceneSetup
         var root = new GameObject("BigArch");
         root.AddComponent<MovingEntity>();
         root.AddComponent<TallArchObstacle>();
+        BigArchLayout archLayout = root.AddComponent<BigArchLayout>();
         // Same reasoning as CreateArchPrefab's own ScoreValue — the walk/
         // duck-under success path returns out of OnTriggerEnter before
         // ever reaching this, so it only affects the failure case (jumped
@@ -2621,13 +2752,8 @@ public static class SceneSetup
         root.AddComponent<ScoreValue>().value = -1;
 
         float aspect = (float)tex.width / tex.height;
-        // Wider than the road itself so the posts land out on the roadside,
-        // not standing on the outer lanes — otherwise it visually reads as
-        // if that lane specifically is what collides with the post, when
-        // the actual pass/hit rule is purely about being airborne or not.
-        // +4 puts them right where side scenery starts (SideScenerySpawner's
-        // sideOffset), i.e. the actual shoulder of the road.
-        float spanWidth = LaneCount * LaneWidth + 4f;
+        // Full road span + shoulder margin — see RoadLayout.BigArchSpanWidth.
+        float spanWidth = RoadLayout.BigArchSpanWidth(LaneCount);
         // The image at full aspect-correct height (~8 units) put the
         // crossbar way above a player's jump peak (~2.4 units) — plenty of
         // apparent clearance, so jumping into it read as an arbitrary rule
@@ -2662,6 +2788,10 @@ public static class SceneSetup
         box.center = new Vector3(0f, spriteHeight / 2f, 0f);
 
         AddStaticGroundShadow(root, spanWidth, 0.6f, "BigArch_Shadow");
+
+        SerializedObject layoutSo = new SerializedObject(archLayout);
+        layoutSo.FindProperty("referenceSpanWidth").floatValue = spanWidth;
+        layoutSo.ApplyModifiedPropertiesWithoutUndo();
 
         string savePath = "Assets/Prefabs/lady_bug/BigArch.prefab";
         GameObject prefab = PrefabUtility.SaveAsPrefabAsset(root, savePath);
@@ -3025,38 +3155,58 @@ public static class SceneSetup
         rowRt.anchorMax = new Vector2(0.5f, 0.5f);
         rowRt.pivot = new Vector2(0.5f, 0.5f);
         rowRt.sizeDelta = new Vector2(780f, 80f); // width widened both sides (was 700) — height already right
-        rowRt.anchoredPosition = new Vector2(0f, -320f);
+        rowRt.anchoredPosition = new Vector2(0f, -315f);
 
         GameObject option1 = CreateMenuOption(rowGo.transform, "Option1", new Vector2(-180f, 0f), "[X] 1 ИГРОК", 280f, 32, 60f);
         GameObject option2 = CreateMenuOption(rowGo.transform, "Option2", new Vector2(180f, 0f), "[ ] 2 ИГРОКА", 280f, 32, 60f);
 
-        // Controller-type row — its Outline is the focus frame for row 1.
-        // Omit entirely when ShowControllerSelectionRow is false (prod cabinet).
-        GameObject controllerRowGo = null;
-        Outline controllerRowOutline = null;
-        Image controllerRowBg = null;
-        GameObject controller1 = null;
-        GameObject controller2 = null;
-        if (ShowControllerSelectionRow)
-        {
-            controllerRowGo = new GameObject("ControllerRow");
-            controllerRowGo.transform.SetParent(canvasGo.transform, false);
-            controllerRowBg = controllerRowGo.AddComponent<Image>();
-            controllerRowBg.color = new Color(1f, 1f, 1f, 0.05f);
-            controllerRowBg.sprite = CreateSoftRectSprite(128, 0.15f); // see rowBg's own comment above
-            controllerRowBg.type = Image.Type.Sliced;
-            controllerRowOutline = controllerRowGo.AddComponent<Outline>();
-            controllerRowOutline.effectDistance = new Vector2(4f, -4f);
-            RectTransform controllerRowRt = controllerRowGo.GetComponent<RectTransform>();
-            controllerRowRt.anchorMin = new Vector2(0.5f, 0.5f);
-            controllerRowRt.anchorMax = new Vector2(0.5f, 0.5f);
-            controllerRowRt.pivot = new Vector2(0.5f, 0.5f);
-            controllerRowRt.sizeDelta = new Vector2(780f, 80f); // two options, same width as the player-count row
-            controllerRowRt.anchoredPosition = new Vector2(0f, -410f);
+        // Lane-count row — seven options (1–7); option 1 is disabled when
+        // two players are selected (StartScreenController greys it out).
+        var lanesRowGo = new GameObject("LanesRow");
+        lanesRowGo.transform.SetParent(canvasGo.transform, false);
+        Image lanesRowBg = lanesRowGo.AddComponent<Image>();
+        lanesRowBg.color = new Color(1f, 1f, 1f, 0.05f);
+        lanesRowBg.sprite = CreateSoftRectSprite(128, 0.15f);
+        lanesRowBg.type = Image.Type.Sliced;
+        Outline lanesRowOutline = lanesRowGo.AddComponent<Outline>();
+        lanesRowOutline.effectDistance = new Vector2(4f, -4f);
+        RectTransform lanesRowRt = lanesRowGo.GetComponent<RectTransform>();
+        lanesRowRt.anchorMin = new Vector2(0.5f, 0.5f);
+        lanesRowRt.anchorMax = new Vector2(0.5f, 0.5f);
+        lanesRowRt.pivot = new Vector2(0.5f, 0.5f);
+        lanesRowRt.sizeDelta = new Vector2(900f, 80f);
+        lanesRowRt.anchoredPosition = new Vector2(0f, -390f);
 
-            controller1 = CreateMenuOption(controllerRowGo.transform, "Controller1", new Vector2(-180f, 0f), "[X] КЛАВИАТУРА", 280f, 26, 60f);
-            controller2 = CreateMenuOption(controllerRowGo.transform, "Controller2", new Vector2(180f, 0f), "[ ] ДАТЧИКИ", 280f, 26, 60f);
+        var laneOptionBgs = new Image[RoadLayout.MaxLaneCount];
+        var laneOptionTexts = new Text[RoadLayout.MaxLaneCount];
+        const float laneSpacing = 110f;
+        float laneStartX = -(RoadLayout.MaxLaneCount - 1) * laneSpacing / 2f;
+        for (int i = 0; i < RoadLayout.MaxLaneCount; i++)
+        {
+            float x = laneStartX + i * laneSpacing;
+            GameObject laneOpt = CreateMenuOption(lanesRowGo.transform, "Lane" + (i + 1), new Vector2(x, 0f), "[ ] " + (i + 1), 90f, 26, 60f);
+            laneOptionBgs[i] = laneOpt.GetComponent<Image>();
+            laneOptionTexts[i] = laneOpt.GetComponentInChildren<Text>();
         }
+
+        // Auto-detected controller status — shown on the right when no board
+        // is connected; StartScreenController hides it when hardware is found.
+        var controllerStatusGo = new GameObject("ControllerStatusText");
+        controllerStatusGo.transform.SetParent(canvasGo.transform, false);
+        Text controllerStatus = controllerStatusGo.AddComponent<Text>();
+        controllerStatus.font = GameFont;
+        controllerStatus.fontSize = 20;
+        controllerStatus.fontStyle = FontStyle.Bold;
+        controllerStatus.alignment = TextAnchor.LowerRight;
+        controllerStatus.color = new Color(0.9f, 0.9f, 0.9f);
+        controllerStatus.text = "КОНТРОЛЛЕР ...";
+        controllerStatusGo.AddComponent<Outline>().effectColor = Color.black;
+        RectTransform controllerStatusRt = controllerStatus.GetComponent<RectTransform>();
+        controllerStatusRt.anchorMin = new Vector2(1f, 0f);
+        controllerStatusRt.anchorMax = new Vector2(1f, 0f);
+        controllerStatusRt.pivot = new Vector2(1f, 0f);
+        controllerStatusRt.sizeDelta = new Vector2(450f, 80f);
+        controllerStatusRt.anchoredPosition = new Vector2(-30f, 30f);
 
         // Start row — same two-layer structure as the other two rows now
         // (outer row frame that tints yellow when focused, inner button
@@ -3078,7 +3228,7 @@ public static class SceneSetup
         // beside СТАРТ — same two-box-side-by-side layout as the player-
         // count row above.
         startRowRt.sizeDelta = new Vector2(700f, 90f);
-        startRowRt.anchoredPosition = new Vector2(0f, -500f);
+        startRowRt.anchoredPosition = new Vector2(0f, -465f);
 
         GameObject startBtn = CreateMenuOption(startRowGo.transform, "StartButton", new Vector2(-180f, 0f), "[X] СТАРТ", 300f, 32, 60f);
         // Leads to an empty placeholder screen for now (TrainingCanvas,
@@ -3100,7 +3250,7 @@ public static class SceneSetup
         notImplementedRt.anchorMax = new Vector2(0.5f, 0.5f);
         notImplementedRt.pivot = new Vector2(0.5f, 0.5f);
         notImplementedRt.sizeDelta = new Vector2(900f, 50f);
-        notImplementedRt.anchoredPosition = new Vector2(0f, -460f);
+        notImplementedRt.anchoredPosition = new Vector2(0f, -430f);
         notImplementedGo.SetActive(false);
 
         // Placeholder screen for the new ТРЕНИРОВКА button — genuinely
@@ -3210,17 +3360,17 @@ public static class SceneSetup
         // — любое)" line was dropped entirely, redundant with the
         // controller-selection row directly above this text.
         menuHelp.text = "ВЫБОР:\n"
-            + "ВПРАВО ВЛЕВО / ВВЕРХ ВНИЗ\n"
+            + "WASD · IJKL\n"
             + "\n"
             + "НАЧАЛО:\n"
-            + "выбрать СТАРТ\n"
-            + "и взмахнуть руками";
+            + "ВЫБРАТЬ СТАРТ ИЛИ ТРЕНИРОВКА\n"
+            + "И ДЕРЖАТЬ ВНИЗ 5 СЕК";
         menuHelpGo.AddComponent<Outline>().effectColor = Color.black;
         RectTransform menuHelpRt = menuHelp.GetComponent<RectTransform>();
         menuHelpRt.anchorMin = new Vector2(0f, 0f);
         menuHelpRt.anchorMax = new Vector2(0f, 0f);
         menuHelpRt.pivot = new Vector2(0f, 0f);
-        menuHelpRt.sizeDelta = new Vector2(450f, 150f); // verticalOverflow=Overflow handles the rest if 6 short lines run a touch past this
+        menuHelpRt.sizeDelta = new Vector2(450f, 190f); // verticalOverflow=Overflow handles the rest if 6 short lines run a touch past this
         menuHelpRt.anchoredPosition = new Vector2(30f, 30f);
 
         // Only the first page starts visible — StartScreenController swaps
@@ -3239,12 +3389,18 @@ public static class SceneSetup
         so.FindProperty("option2Text").objectReferenceValue = option2.GetComponentInChildren<Text>();
         so.FindProperty("optionsRowOutline").objectReferenceValue = rowOutline;
         so.FindProperty("optionsRowBg").objectReferenceValue = rowBg;
-        so.FindProperty("controller1Bg").objectReferenceValue = controller1 != null ? controller1.GetComponent<Image>() : null;
-        so.FindProperty("controller2Bg").objectReferenceValue = controller2 != null ? controller2.GetComponent<Image>() : null;
-        so.FindProperty("controller1Text").objectReferenceValue = controller1 != null ? controller1.GetComponentInChildren<Text>() : null;
-        so.FindProperty("controller2Text").objectReferenceValue = controller2 != null ? controller2.GetComponentInChildren<Text>() : null;
-        so.FindProperty("controllerRowOutline").objectReferenceValue = controllerRowOutline;
-        so.FindProperty("controllerRowBg").objectReferenceValue = controllerRowBg;
+        SerializedProperty laneBgsProp = so.FindProperty("laneOptionBgs");
+        laneBgsProp.arraySize = laneOptionBgs.Length;
+        for (int i = 0; i < laneOptionBgs.Length; i++)
+            laneBgsProp.GetArrayElementAtIndex(i).objectReferenceValue = laneOptionBgs[i];
+        SerializedProperty laneTextsProp = so.FindProperty("laneOptionTexts");
+        laneTextsProp.arraySize = laneOptionTexts.Length;
+        for (int i = 0; i < laneOptionTexts.Length; i++)
+            laneTextsProp.GetArrayElementAtIndex(i).objectReferenceValue = laneOptionTexts[i];
+        so.FindProperty("lanesRowOutline").objectReferenceValue = lanesRowOutline;
+        so.FindProperty("lanesRowBg").objectReferenceValue = lanesRowBg;
+        so.FindProperty("controllerStatusText").objectReferenceValue = controllerStatus;
+        so.FindProperty("menuHelpText").objectReferenceValue = menuHelp;
         so.FindProperty("notImplementedText").objectReferenceValue = notImplemented;
         so.FindProperty("startBg").objectReferenceValue = startBtn.GetComponent<Image>();
         so.FindProperty("startText").objectReferenceValue = startBtn.GetComponentInChildren<Text>();
@@ -3577,8 +3733,8 @@ public static class SceneSetup
 
         CreatePageTitle(page.transform, title, new Color(1f, 0.85f, 0.2f));
 
-        const float topY = 140f;
-        const float bottomY = -300f;
+        const float topY = 130f;
+        const float bottomY = -220f;
         int n = lines.Length;
         var rowTexts = new Text[n];
         for (int i = 0; i < n; i++)
@@ -3644,7 +3800,7 @@ public static class SceneSetup
         lineRt.anchorMin = new Vector2(0f, 0.5f);
         lineRt.anchorMax = new Vector2(0f, 0.5f);
         lineRt.pivot = new Vector2(0f, 0.5f);
-        lineRt.sizeDelta = new Vector2(1000f, 70f);
+        lineRt.sizeDelta = new Vector2(1000f, 72f);
         lineRt.anchoredPosition = new Vector2(leftPadding + checkSize + textGap, y);
 
         return line;
@@ -3886,26 +4042,22 @@ public static class SceneSetup
         // (was ±260) so the two rigs read as clearly separate setups
         // instead of crowding the middle — still well clear of the page's
         // ±700 half-width even with the sensor/joystick art's own spread.
-        const float playerX = 380f;
+        const float playerX = 400f;
 
-        CreateVerticalCheck(page.transform, new Vector2(-playerX, 170f));
-        CreateControlsSubLabel(page.transform, new Vector2(-playerX, 110f), "ИГРОК 1");
-        CreateControlsSubLabel(page.transform, new Vector2(-playerX, 65f), "ДАТЧИКИ");
-        CreateSensorGlyph(page.transform, new Vector2(-playerX - 55f, -60f), -40f);
-        CreateSensorGlyph(page.transform, new Vector2(-playerX + 55f, -60f), 40f);
+        CreateVerticalCheck(page.transform, new Vector2(-playerX, 200f));
+        CreateControlsSubLabel(page.transform, new Vector2(-playerX, 130f), "ИГРОК 1");
+        CreateControlsSubLabel(page.transform, new Vector2(-playerX, 75f), "ДАТЧИКИ");
+        CreateSensorGlyph(page.transform, new Vector2(-playerX - 55f, -35f), -40f);
+        CreateSensorGlyph(page.transform, new Vector2(-playerX + 55f, -35f), 40f);
 
-        CreateVerticalCheck(page.transform, new Vector2(playerX, 170f));
-        CreateControlsSubLabel(page.transform, new Vector2(playerX, 110f), "ИГРОК 2");
-        CreateControlsSubLabel(page.transform, new Vector2(playerX, 65f), "ДЖОЙСТИК");
-        CreateJoystickIcon(page.transform, new Vector2(playerX, -60f));
+        CreateVerticalCheck(page.transform, new Vector2(playerX, 200f));
+        CreateControlsSubLabel(page.transform, new Vector2(playerX, 130f), "ИГРОК 2");
+        CreateControlsSubLabel(page.transform, new Vector2(playerX, 75f), "ДЖОЙСТИК");
+        CreateJoystickIcon(page.transform, new Vector2(playerX, -35f));
 
-        // Exit instruction — bumped up from the shared 26pt label size and
-        // spelled out in full ("СЕКУНД", not the abbreviated "СЕК") so it
-        // reads clearly as its own important callout, not just another
-        // sub-label like the ones above.
-        CreateVerticalCheck(page.transform, new Vector2(0f, -180f));
-        CreateControlsSubLabel(page.transform, new Vector2(0f, -240f), "ВЫХОД", 34);
-        CreateControlsSubLabel(page.transform, new Vector2(0f, -288f), "ПРИСЕСТЬ ОБОИМ НА 5 СЕКУНД", 34, 620f);
+        CreateVerticalCheck(page.transform, new Vector2(0f, -165f));
+        CreateControlsSubLabel(page.transform, new Vector2(0f, -235f), "ВЫХОД", 34);
+        CreateControlsSubLabel(page.transform, new Vector2(0f, -295f), "ПРИСЕСТЬ ОБОИМ НА 5 СЕКУНД", 34, 620f);
 
         return page;
     }

@@ -155,46 +155,68 @@ public sealed class JoystickSerial : MonoBehaviour
 
     private bool TryIdentify(string portPath)
     {
-        int fd = OpenPort(portPath);
-        if (fd < 0)
-            return false;
-
-        try
+        lock (MacSerialPort.ProbeLock)
         {
-            WriteAscii(fd, "?");
-
-            DateTime deadline = DateTime.UtcNow.AddSeconds(identificationTimeout);
-            StringBuilder line = new StringBuilder();
-            byte[] buffer = new byte[1];
-
-            while (DateTime.UtcNow < deadline)
+            int fd = OpenPort(portPath);
+            if (fd < 0)
             {
-                long read = MacNative.read(fd, buffer, (UIntPtr)1);
-                if (read <= 0)
-                {
-                    Thread.Sleep(5);
-                    continue;
-                }
-
-                char c = (char)buffer[0];
-                if (c == '\n')
-                {
-                    if (line.ToString().Trim() == "BOARD,JOYSTICK")
-                        return true;
-                    line.Length = 0;
-                }
-                else if (c != '\r')
-                {
-                    line.Append(c);
-                }
+                Debug.LogWarning("[JoystickSerial] Cannot open " + portPath
+                    + " — close Arduino Serial Monitor / Plotter if it's using this port.");
+                return false;
             }
 
-            return false;
+            try
+            {
+                MacSerialPort.SetDtr(fd, true);
+                Thread.Sleep(800);
+                MacNative.tcflush(fd, MacNative.FlushInputAndOutput);
+                WriteAscii(fd, "?");
+
+                DateTime deadline = DateTime.UtcNow.AddSeconds(identificationTimeout);
+                StringBuilder line = new StringBuilder();
+                byte[] buffer = new byte[1];
+
+                while (DateTime.UtcNow < deadline)
+                {
+                    long read = MacNative.read(fd, buffer, (UIntPtr)1);
+                    if (read <= 0)
+                    {
+                        Thread.Sleep(5);
+                        continue;
+                    }
+
+                    char c = (char)buffer[0];
+                    if (c == '\n')
+                    {
+                        string trimmed = line.ToString().Trim();
+                        line.Length = 0;
+                        if (trimmed == "BOARD,JOYSTICK" || IsJoystickDataLine(trimmed))
+                            return true;
+                        if (trimmed == "BOARD,GESTURE_SENSORS")
+                            return false;
+                    }
+                    else if (c != '\r')
+                    {
+                        line.Append(c);
+                    }
+                }
+
+                return false;
+            }
+            finally
+            {
+                MacNative.close(fd);
+            }
         }
-        finally
-        {
-            MacNative.close(fd);
-        }
+    }
+
+    static bool IsJoystickDataLine(string line)
+    {
+        if (line.StartsWith("J,"))
+            return line.Split(',').Length == 5;
+        if (line.StartsWith("G,"))
+            return line.Split(',').Length == 7;
+        return false;
     }
 
     private void ReadFromPort(string portPath)
@@ -205,6 +227,10 @@ public sealed class JoystickSerial : MonoBehaviour
 
         try
         {
+            MacSerialPort.SetDtr(fd, true);
+            Thread.Sleep(600);
+            MacNative.tcflush(fd, MacNative.FlushInputAndOutput);
+
             _connected = true;
             Debug.Log("[JoystickSerial] Connected: " + portPath);
 

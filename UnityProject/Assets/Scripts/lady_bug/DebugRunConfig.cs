@@ -4,7 +4,16 @@ using UnityEngine;
 public static class DebugRunConfig
 {
     public const bool EmptyRoad = false;
-    public const float RoadHalfWidth = 8f;
+
+    public static float RoadHalfWidth
+    {
+        get
+        {
+            foreach (var pc in Object.FindObjectsOfType<PlayerController>())
+                return RoadLayout.HalfRoadSpan(pc.LaneCount) + 2f;
+            return RoadLayout.HalfRoadSpan(1) + 2f;
+        }
+    }
 
     public const float RingTrickWindow = 1.5f;
     public const float SyncPartnerMoveTolerance = 0.6f;
@@ -49,15 +58,9 @@ public static class DebugRunConfig
 
     public static void ClearRoadEntities()
     {
-        if (!EmptyRoad)
-            return;
-
         foreach (var entity in Object.FindObjectsOfType<MovingEntity>())
         {
-            if (entity == null)
-                continue;
-
-            if (Mathf.Abs(entity.transform.position.x) <= RoadHalfWidth)
+            if (entity != null)
                 Object.Destroy(entity.gameObject);
         }
     }

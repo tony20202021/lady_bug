@@ -3,37 +3,38 @@ Shader "Custom/ShoulderTint"
     Properties
     {
         _MainTex ("Shoulder Tile", 2D) = "white" {}
-        _ScrollWorld ("Scroll World", Float) = 0
-        _SegOrigin ("Segment Origin", Float) = 500
-        _Seed ("Seed", Float) = 0
-        _MinSolid ("Min Solid Run", Float) = 40
-        _MaxSolid ("Max Solid Run", Float) = 96
-        _MinTrans ("Min Transition", Float) = 0.5
-        _MaxTrans ("Max Transition", Float) = 1
+        [Toggle] _RoadEdgeAtHighU ("Road Edge At High U", Float) = 1
+        _EdgeInset ("Road-edge inset (UV width)", Range(0, 0.25)) = 0
+        _EdgeWaveAmp ("Road-edge wave amplitude (UV)", Range(0, 0.2)) = 0.04
+        _EdgeWaveFreq ("Road-edge waves per strip length", Float) = 13
+        _EdgeAmpVar ("Per-wave height variation", Range(0, 1)) = 1
+        _EdgeSoftness ("Road-edge alpha feather (UV)", Range(0, 0.08)) = 0.032
     }
 
     SubShader
     {
-        Tags { "RenderType"="Opaque" }
+        Tags { "Queue"="Transparent" "RenderType"="Transparent" }
         LOD 200
 
         Pass
         {
+            Blend SrcAlpha OneMinusSrcAlpha
+            ZWrite Off
+            Cull Back
+
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag
-            #pragma target 3.0
             #include "UnityCG.cginc"
 
             sampler2D _MainTex;
             float4 _MainTex_ST;
-            float _ScrollWorld;
-            float _SegOrigin;
-            float _Seed;
-            float _MinSolid;
-            float _MaxSolid;
-            float _MinTrans;
-            float _MaxTrans;
+            float _RoadEdgeAtHighU;
+            float _EdgeInset;
+            float _EdgeWaveAmp;
+            float _EdgeWaveFreq;
+            float _EdgeAmpVar;
+            float _EdgeSoftness;
 
             struct appdata
             {
@@ -45,81 +46,52 @@ Shader "Custom/ShoulderTint"
             {
                 float4 pos : SV_POSITION;
                 float2 uv : TEXCOORD0;
-                float along : TEXCOORD1;
             };
 
-            float Hash(float n)
+            float Hash11(float p)
             {
-                return frac(sin(n * 12.9898 + _Seed) * 43758.5453);
+                p = frac(p * 0.1031);
+                p *= p + 33.33;
+                p *= p + p;
+                return frac(p);
             }
 
-            float PickColor(float seg)
+            float WaveAmpScale(float2 uv, float seed)
             {
-                return floor(Hash(seg * 3.17) * 3.0);
+                float cell = uv.y * _EdgeWaveFreq;
+                float i = floor(cell);
+                float f = frac(cell);
+                f = f * f * (3.0 - 2.0 * f);
+                float r0 = Hash11(i * 12.9898 + 78.233 + seed);
+                float r1 = Hash11((i + 1.0) * 12.9898 + 78.233 + seed);
+                return lerp(r0, r1, f);
             }
 
-            float NextColor(float cur, float seg)
+            float StripEdgeMask(float2 uv, float edgeAtHighU, float seed)
             {
-                float a = cur + 1.0;
-                if (a >= 3.0)
-                    a -= 3.0;
-                float b = cur + 2.0;
-                if (b >= 3.0)
-                    b -= 3.0;
-                return Hash(seg * 7.91 + 2.3) > 0.5 ? a : b;
+                float edgeDist = edgeAtHighU > 0.5 ? (1.0 - uv.x) : uv.x;
+                float cell = uv.y * _EdgeWaveFreq;
+                float waveIndex = floor(cell);
+                float phase = (Hash11(waveIndex * 41.17 + 9.3 + seed) - 0.5) * 0.45;
+                float t = cell + phase;
+                float s = sin(t * 6.2831853);
+                float wave = sign(s) * pow(abs(s), 0.72);
+                float rnd = WaveAmpScale(uv, seed);
+                float rnd2 = Hash11(waveIndex * 23.45 + 5.1 + seed);
+                float slowRnd = Hash11(floor(uv.y * 3.2) * 31.1 + 2.7 + seed);
+                float ampScale = lerp(0.12, 2.15, rnd);
+                ampScale *= lerp(0.55, 1.55, slowRnd);
+                float insetJitter = lerp(-0.012, 0.02, rnd2);
+                float ampMix = lerp(1.0, ampScale, _EdgeAmpVar);
+                float edge = _EdgeInset + insetJitter * _EdgeAmpVar + _EdgeWaveAmp * ampMix * wave;
+                return edgeDist - edge;
             }
 
-            float3 ApplyTint(float3 rgb, float tintIdx)
+            float CombinedEdgeMask(float2 uv)
             {
-                float brightness = 1.0;
-                float warmth = 0.0;
-                if (tintIdx >= 1.5)
-                {
-                    brightness = 0.88;
-                    warmth = -0.06;
-                }
-                else if (tintIdx >= 0.5)
-                {
-                    brightness = 1.14;
-                    warmth = 0.10;
-                }
-
-                float r = rgb.r * brightness * (1.0 + warmth * 0.5);
-                float g = rgb.g * brightness;
-                float b = rgb.b * brightness * (1.0 - warmth * 0.5);
-                return saturate(float3(r, g, b));
-            }
-
-            float3 GetTint(float along)
-            {
-                float pos = 0.0;
-                float cur = PickColor(0.0);
-
-                [loop]
-                for (int i = 0; i < 48; i++)
-                {
-                    float seg = (float)i;
-                    float runLen = lerp(_MinSolid, _MaxSolid, Hash(seg + 0.1));
-                    float transLen = lerp(_MinTrans, _MaxTrans, Hash(seg + 5.7));
-
-                    if (along < pos + runLen)
-                        return ApplyTint(float3(1.0, 1.0, 1.0), cur);
-
-                    if (along < pos + runLen + transLen)
-                    {
-                        float nxt = NextColor(cur, seg);
-                        float t = (along - pos - runLen) / max(transLen, 0.001);
-                        t = smoothstep(0.0, 1.0, t);
-                        float3 a = ApplyTint(float3(1.0, 1.0, 1.0), cur);
-                        float3 b = ApplyTint(float3(1.0, 1.0, 1.0), nxt);
-                        return lerp(a, b, t);
-                    }
-
-                    pos += runLen + transLen;
-                    cur = NextColor(cur, seg);
-                }
-
-                return ApplyTint(float3(1.0, 1.0, 1.0), cur);
+                float road = StripEdgeMask(uv, _RoadEdgeAtHighU, 0.0);
+                float grass = StripEdgeMask(uv, 1.0 - _RoadEdgeAtHighU, 31.7);
+                return min(road, grass);
             }
 
             v2f vert(appdata v)
@@ -127,16 +99,16 @@ Shader "Custom/ShoulderTint"
                 v2f o;
                 o.pos = UnityObjectToClipPos(v.vertex);
                 o.uv = TRANSFORM_TEX(v.uv, _MainTex);
-                float3 world = mul(unity_ObjectToWorld, v.vertex).xyz;
-                o.along = world.z + _ScrollWorld + _SegOrigin;
                 return o;
             }
 
             fixed4 frag(v2f i) : SV_Target
             {
-                fixed4 baseCol = tex2D(_MainTex, i.uv);
-                float3 tint = GetTint(i.along);
-                return fixed4(baseCol.rgb * tint, 1.0);
+                fixed4 col = tex2D(_MainTex, i.uv);
+                float edge = CombinedEdgeMask(i.uv);
+                float alpha = smoothstep(0.0, _EdgeSoftness, edge);
+                col.a = alpha;
+                return col;
             }
             ENDCG
         }

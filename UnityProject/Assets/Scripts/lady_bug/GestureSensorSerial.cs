@@ -143,45 +143,56 @@ public sealed class GestureSensorSerial : MonoBehaviour
 
     private bool TryIdentify(string portPath)
     {
-        int fd = OpenPort(portPath);
-        if (fd < 0)
-            return false;
-
-        try
+        lock (MacSerialPort.ProbeLock)
         {
-            WriteAscii(fd, "?");
+            int fd = OpenPort(portPath);
+            if (fd < 0)
+                return false;
 
-            DateTime deadline = DateTime.UtcNow.AddSeconds(identificationTimeout);
-            StringBuilder line = new StringBuilder();
-            byte[] buffer = new byte[1];
-
-            while (DateTime.UtcNow < deadline)
+            try
             {
-                long read = MacNative.read(fd, buffer, (UIntPtr)1);
-                if (read <= 0)
+                MacSerialPort.SetDtr(fd, true);
+                Thread.Sleep(150);
+                MacNative.tcflush(fd, MacNative.FlushInputAndOutput);
+                WriteAscii(fd, "?");
+
+                DateTime deadline = DateTime.UtcNow.AddSeconds(identificationTimeout);
+                StringBuilder line = new StringBuilder();
+                byte[] buffer = new byte[1];
+
+                while (DateTime.UtcNow < deadline)
                 {
-                    Thread.Sleep(5);
-                    continue;
+                    long read = MacNative.read(fd, buffer, (UIntPtr)1);
+                    if (read <= 0)
+                    {
+                        Thread.Sleep(5);
+                        continue;
+                    }
+
+                    char c = (char)buffer[0];
+                    if (c == '\n')
+                    {
+                        string trimmed = line.ToString().Trim();
+                        line.Length = 0;
+                        if (trimmed == "BOARD,GESTURE_SENSORS")
+                            return true;
+                        // Combined / joystick board — not ours; bail immediately so
+                        // JoystickSerial can probe the same port without waiting.
+                        if (trimmed == "BOARD,JOYSTICK" || trimmed.StartsWith("J,"))
+                            return false;
+                    }
+                    else if (c != '\r')
+                    {
+                        line.Append(c);
+                    }
                 }
 
-                char c = (char)buffer[0];
-                if (c == '\n')
-                {
-                    if (line.ToString().Trim() == "BOARD,GESTURE_SENSORS")
-                        return true;
-                    line.Length = 0;
-                }
-                else if (c != '\r')
-                {
-                    line.Append(c);
-                }
+                return false;
             }
-
-            return false;
-        }
-        finally
-        {
-            MacNative.close(fd);
+            finally
+            {
+                MacNative.close(fd);
+            }
         }
     }
 
@@ -193,6 +204,10 @@ public sealed class GestureSensorSerial : MonoBehaviour
 
         try
         {
+            MacSerialPort.SetDtr(fd, true);
+            Thread.Sleep(400);
+            MacNative.tcflush(fd, MacNative.FlushInputAndOutput);
+
             _connected = true;
             Debug.Log("[GestureSensorSerial] Connected: " + portPath);
 

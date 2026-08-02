@@ -19,6 +19,12 @@ public class SnakePose : MonoBehaviour
     private bool _lastMoving;
     private bool _initialized;
 
+    public void ApplyLaneScale(float factor)
+    {
+        height *= factor;
+        _initialized = false;
+    }
+
     private void Update()
     {
         if (walker == null || spriteRenderer == null)

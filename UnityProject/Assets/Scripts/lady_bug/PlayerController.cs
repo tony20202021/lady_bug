@@ -3,7 +3,7 @@ using UnityEngine;
 
 public class PlayerController : MonoBehaviour
 {
-    [SerializeField] private int laneCount = 3;
+    [SerializeField] private int laneCount = 1;
     [SerializeField] private float laneWidth = 3f;
     [SerializeField] private float laneChangeSpeed = 11f;
     [SerializeField] private float laneRepeatDelay = 0.35f;
@@ -150,6 +150,7 @@ public class PlayerController : MonoBehaviour
     // using) — exposed for WinSequence's "flap to keep going" prompt at the
     // finish line, so it doesn't need its own separate control-scheme logic.
     public bool IsJumpInputHeld => UpKeyHeld();
+    public bool IsDuckInputHeld => DownKeyHeld();
     public float TopY => transform.position.y + transform.localScale.y / 2f;
 
     // Called by WinSequence right before it disables this component and
@@ -180,20 +181,42 @@ public class PlayerController : MonoBehaviour
     // Start() has run (e.g. centering the sole player in 1-player mode).
     public void SetPreviewLane(int lane)
     {
+        ApplyAdaptiveLaneWidth();
         startLane = lane;
         Vector3 pos = transform.position;
-        pos.x = (lane - (laneCount - 1) / 2f) * laneWidth;
+        pos.x = RoadLayout.LaneCenterX(lane, laneCount);
         transform.position = pos;
+    }
+
+    public void ConfigureForRun(int count, int startLaneIndex)
+    {
+        laneCount = count;
+        ApplyAdaptiveLaneWidth();
+        startLane = startLaneIndex;
+        _currentLane = startLaneIndex;
+        Vector3 pos = transform.position;
+        pos.x = RoadLayout.LaneCenterX(_currentLane, laneCount);
+        transform.position = pos;
+    }
+
+    public void ApplyAdaptiveLaneWidth()
+    {
+        laneWidth = RoadLayout.LaneWidthFor(laneCount);
     }
 
     private void Awake()
     {
         jumpDuration = DebugRunConfig.JumpDuration;
+        ApplyAdaptiveLaneWidth();
     }
 
     private void Start()
     {
+        ApplyAdaptiveLaneWidth();
         _currentLane = startLane >= 0 ? startLane : laneCount / 2;
+        Vector3 pos = transform.position;
+        pos.x = RoadLayout.LaneCenterX(_currentLane, laneCount);
+        transform.position = pos;
         _baseScaleY = transform.localScale.y;
         _baseGroundY = transform.position.y - _baseScaleY / 2f;
 
@@ -1188,7 +1211,7 @@ public class PlayerController : MonoBehaviour
 
     private void UpdateLanePosition()
     {
-        float targetX = (_currentLane - (laneCount - 1) / 2f) * laneWidth;
+        float targetX = RoadLayout.LaneCenterX(_currentLane, laneCount);
         Vector3 pos = transform.position;
         float previousX = pos.x;
         pos.x = Mathf.MoveTowards(pos.x, targetX, laneChangeSpeed * Time.deltaTime);

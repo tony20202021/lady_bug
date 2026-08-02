@@ -80,6 +80,9 @@ public class WinSequence : MonoBehaviour
     // leaderboard category — same component the start-screen carousel uses.
     [SerializeField] private GameObject[] leaderboardPages;
 
+    // Left/right wedge HUD (distance, time, speed, score, tricks) — hidden
+    // once the post-win stats pages start so they don't overlap the recap.
+
     [SerializeField] private float entityFadeDuration = 3f;
     [SerializeField] private float flyDuration = 3f;
     [SerializeField] private float flyHeightGain = 20f;
@@ -260,6 +263,10 @@ public class WinSequence : MonoBehaviour
             spawner.enabled = false;
         foreach (var cloud in FindObjectsOfType<CloudDrift>())
             cloud.enabled = false;
+        foreach (var spawner in FindObjectsOfType<BirdSpawner>())
+            spawner.enabled = false;
+        foreach (var bird in FindObjectsOfType<SkyBird>())
+            bird.enabled = false;
         foreach (var sun in FindObjectsOfType<SunArc>())
             sun.enabled = false;
 
@@ -365,6 +372,8 @@ public class WinSequence : MonoBehaviour
         // collapses straight to that reload instead of waiting out the rest.
         _skipToEnd = false;
 
+        HideGameplayHudPanels();
+
         if (statsBackdrop != null)
             statsBackdrop.SetActive(true);
         try
@@ -411,6 +420,12 @@ public class WinSequence : MonoBehaviour
             SpeedController.Instance.ResetForMenu();
 
         SceneManager.LoadScene(SceneManager.GetActiveScene().name);
+    }
+
+    private void HideGameplayHudPanels()
+    {
+        GameplayHudVisibility.SetWedgePanelsVisible(false);
+        GameplayHudVisibility.SetTricksHudVisible(false);
     }
 
     // Post-win summary, split across a few pages (same "read at your own
