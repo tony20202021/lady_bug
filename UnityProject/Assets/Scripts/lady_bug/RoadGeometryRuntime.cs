@@ -56,12 +56,12 @@ public static class RoadGeometryRuntime
         foreach (var player in Object.FindObjectsOfType<PlayerController>())
         {
             bool solo = playerCount == 1;
-            if (solo && player.name == "PlayerLeft")
+            if (solo && player.name == "PlayerRight")
                 continue;
 
-            int startLane = player.name == "PlayerRight"
-                ? (solo ? RoadLayout.SoloStartLane(laneCount) : startLaneRight)
-                : startLaneLeft;
+            int startLane = player.name == "PlayerLeft"
+                ? (solo ? RoadLayout.SoloStartLane(laneCount) : startLaneLeft)
+                : startLaneRight;
             player.ConfigureForRun(laneCount, startLane);
         }
     }

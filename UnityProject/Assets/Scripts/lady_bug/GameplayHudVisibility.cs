@@ -1,7 +1,8 @@
 using UnityEngine;
 
 // Corner wedge HUD (distance/time/score/tricks), tricks panel, and per-player
-// gesture readouts — only visible during an actual road run.
+// gesture readouts — gameplay panels only during a run; gesture debug HUD can
+// also show on the pre-game menu when hardware is connected.
 public static class GameplayHudVisibility
 {
     public static readonly string[] WedgePanelNames =
@@ -44,15 +45,51 @@ public static class GameplayHudVisibility
             tricksCanvas.SetActive(visible);
     }
 
-    public static void SetGestureHudVisible(bool visible)
+    public static void SetGestureHudVisible(bool hardwareMode)
     {
-        bool show = visible && IsHardwareConnected();
-        foreach (string playerName in new[] { "PlayerLeft", "PlayerRight" })
+        if (!hardwareMode)
         {
-            GameObject gestureCanvas = FindSceneRoot(playerName + "GestureCanvas");
-            if (gestureCanvas != null)
-                gestureCanvas.SetActive(show);
+            SetPlayerGestureHudVisible("PlayerLeft", false);
+            SetPlayerGestureHudVisible("PlayerRight", false);
+            return;
         }
+
+        // Left = P1 distance sensors; right = P2 joystick cross — independent
+        // panels so the joystick HUD stays visible in 1-player menu/training.
+        SetPlayerGestureHudVisible("PlayerLeft", HasSensorHudFeed());
+        SetPlayerGestureHudVisible("PlayerRight", HasJoystickHudFeed());
+    }
+
+    static bool HasSensorHudFeed()
+    {
+        if (GestureSensorSerial.Instance != null && GestureSensorSerial.Instance.IsConnected)
+            return true;
+
+        JoystickSerial board = JoystickSerial.Instance;
+        return board != null && board.IsConnected && board.HasHandSensors;
+    }
+
+    static bool HasJoystickHudFeed()
+    {
+        JoystickSerial board = JoystickSerial.Instance;
+        return board != null && board.IsConnected;
+    }
+
+    static void SetPlayerGestureHudVisible(string playerName, bool visible)
+    {
+        GameObject gestureCanvas = FindSceneRoot(playerName + "GestureCanvas");
+        if (gestureCanvas == null)
+            return;
+
+        gestureCanvas.SetActive(visible);
+        if (!visible)
+            return;
+
+        // Unity zeroes overlay-canvas scale while inactive — if the scene was
+        // saved mid-toggle the canvas can be "active" but still invisible.
+        RectTransform rt = gestureCanvas.GetComponent<RectTransform>();
+        if (rt != null && rt.localScale.sqrMagnitude < 0.001f)
+            rt.localScale = Vector3.one;
     }
 
     static Canvas FindScoreCanvas()

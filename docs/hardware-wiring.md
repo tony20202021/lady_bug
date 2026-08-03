@@ -9,7 +9,7 @@
 
 1. [Какая прошивка когда](#1-какая-прошивка-когда)
 2. [CombinedBoard — одна плата (основная)](#2-combinedboard--одна-плата-основная)
-3. [GestureSensors — только датчики (4 руки)](#3-gesturesensors--только-датчики-4-руки)
+3. [GestureSensors — только датчики (2 руки, игрок 1)](#3-gesturesensors--только-датчики-2-руки-игрок-1)
 4. [Joystick — только джойстик](#4-joystick--только-джойстик)
 5. [Общая земля (GND)](#5-общая-земля-gnd)
 6. [Serial-протокол](#6-serial-протокол)
@@ -25,7 +25,7 @@
 | Прошивка | Файл | Когда использовать |
 |----------|------|-------------------|
 | **CombinedBoard** | `ArduinoFirmware/CombinedBoard/CombinedBoard.ino` | **Одна Nano**: 2 датчика (игрок 1) + джойстик (игрок 2) |
-| GestureSensors | `ArduinoFirmware/GestureSensors/GestureSensors.ino` | Одна Nano: 4 датчика на обоих игроков (+ 2 кнопки тормоза, в игре не используются) |
+| GestureSensors | `ArduinoFirmware/GestureSensors/GestureSensors.ino` | Одна Nano: 2 датчика высоты (левая/правая рука игрока 1) |
 | Joystick | `ArduinoFirmware/Joystick/Joystick.ino` | Отдельная Nano: только джойстик игрока 2 |
 
 На `?` по Serial:
@@ -48,7 +48,7 @@
 - **Игрок 1 (слева):** 2× VL53L0X над руками — жесты (наклон, прыжок, присед).
 - **Игрок 2 (справа):** аналоговый джойстик KY-023 (или аналог) — те же направления, что на клавиатуре.
 
-Unity определяет плату как **`BOARD,JOYSTICK`** и читает её через **`JoystickSerial.cs`** (строки `J,...` и `G,...`).
+Unity определяет плату как **`BOARD,JOYSTICK`** и читает её через **`JoystickSerial.cs`** (одна строка `G,...,J,...` за цикл).
 
 ### Таблица разводки
 
@@ -114,23 +114,23 @@ Unity определяет плату как **`BOARD,JOYSTICK`** и читае�
 
 ---
 
-## 3. GestureSensors — только датчики (4 руки)
+## 3. GestureSensors — только датчики (2 руки, игрок 1)
 
 Прошивка: `ArduinoFirmware/GestureSensors/GestureSensors.ino`  
 Unity: **`GestureSensorSerial.cs`**, ответ на `?` → **`BOARD,GESTURE_SENSORS`**.
 
-| Датчик / кнопка | Пин Nano |
-|-----------------|----------|
-| P1 левая рука VIN | D2 |
-| P1 правая рука VIN | D3 |
-| P2 левая рука VIN | D4 |
-| P2 правая рука VIN | D5 |
-| SCL / SDA (общие) | A5 / A4 |
-| Кнопка тормоза P1 | D6 → GND (`INPUT_PULLUP`) |
-| Кнопка тормоза P2 | D7 → GND |
+Отдельная плата только для жестов игрока 1 (без джойстика). Разводка совпадает с блоком датчиков в CombinedBoard:
 
-I2C-адреса после инициализации: **0x30–0x33**.  
-Кнопки тормоза **физически могут быть распаяны**, но **игра их не читает** (тормоз убран из геймплея).
+| Датчик | Пин Nano |
+|--------|----------|
+| Левая рука VIN | D2 |
+| Правая рука VIN | D3 |
+| SCL / SDA (общие) | A5 / A4 |
+
+I2C-адреса после инициализации: **0x30**, **0x31**.  
+Serial: **`G,<left_mm>,<right_mm>`** — только два датчика высоты, без тормоза и без каналов второго игрока.
+
+~**33 Гц** (2 датчика подряд, см. `MEASUREMENT_BUDGET_US` в `.ino`).
 
 ---
 
@@ -179,24 +179,26 @@ Unity: **`JoystickSerial.cs`**.
 
 **Идентификация:** Unity шлёт **`?`**, плата отвечает строкой `BOARD,...`.
 
-### CombinedBoard (каждый цикл — две строки)
+### CombinedBoard (каждый цикл — одна строка)
 
 ```
-J,<up>,<down>,<left>,<right>
-G,<left_mm>,<right_mm>,0,-1,-1,0
+G,<left_mm>,<right_mm>,J,<up>,<down>,<left>,<right>
 ```
+
+Сначала блок **G** (2 датчика высоты), затем **J** (4 направления джойстика).
 
 | Поле | Значение |
 |------|----------|
-| `J,*` | 0 или 1 — пороги аналога джойстика |
-| `G,*` мм | расстояние в миллиметрах; **-1** = нет цели |
-| `G` поля 4–6 | `-1,-1,0` — заглушки (2-й игрок / тормоз на этой плате нет) |
+| `G,*` мм (поля 2–3) | расстояние в миллиметрах; **-1** = нет цели (таймаут или ≥ **2000** мм — датчик без близкой поверхности отдаёт ~8190) |
+| `J,*` (поля 5–8) | 0 или 1 — пороги аналога джойстика |
 
 ### GestureSensors (одна строка)
 
 ```
-G,<p1_left>,<p1_right>,<p1_brake>,<p2_left>,<p2_right>,<p2_brake>
+G,<left_mm>,<right_mm>
 ```
+
+Поля расстояния: **-1** = нет цели (таймаут или ≥ **2000** мм).
 
 ### Joystick (одна строка)
 
@@ -218,8 +220,9 @@ J,<up>,<down>,<left>,<right>
 
 `GestureInput.cs`:
 
-- Обычно читает `GestureSensorSerial`.
+- Обычно читает `GestureSensorSerial` (**только игрок 1** — два датчика высоты).
 - Если это **игрок 1** и подключён **CombinedBoard** (`JoystickSerial.IsConnected`, `GestureSensorSerial` — нет), расстояния рук берутся из **`JoystickSerial.HandLeftMm` / `HandRightMm`**.
+- Игрок 2 в режиме 2P — **`JoystickInput`** / джойстик, не `GestureSensorSerial`.
 
 `JoystickInput.cs` — дискретные направления джойстика для игрока 2.
 
@@ -236,9 +239,10 @@ J,<up>,<down>,<left>,<right>
 
 | Действие в меню | Источник |
 |-----------------|----------|
-| Влево / вправо / вверх / вниз | **Жесты датчиков** и **джойстик** (оба) |
-| Подтверждение СТАРТ / ТРЕНИРОВКА | **Удержание «вниз» 5 сек** (отсчёт на кнопке) |
-| Выход из **тренировки** (карусель или практика) | Все **активные** игроки держат присед **3 с молча + 5 с отсчёта** |
+| Влево / вправо / вверх | **Жесты датчиков** и **джойстик** (оба) |
+| Вниз на строках «1/2 игрока» и «полосы» | **Короткий жест/джойстик «вниз»** — сразу переход |
+| Подтверждение СТАРТ / ТРЕНИРОВКА | **Удержание «вниз» 5 сек** на этой строке (отсчёт на кнопке) |
+| Выход из **тренировки** (карусель) | Все **активные** игроки держат присед **3 с молча + 5 с отсчёта** |
 
 В игре (2 игрока, CombinedBoard):
 
@@ -254,7 +258,7 @@ J,<up>,<down>,<left>,<right>
 1. Arduino IDE → плата **Arduino Nano** → процессор **ATmega328P (Old Bootloader)** при необходимости.
 2. Установить библиотеку **Pololu VL53L0X** (для CombinedBoard / GestureSensors).
 3. Залить **`CombinedBoard.ino`** (или нужный скетч).
-4. Serial Monitor: **115200** — должны идти строки `J,...` и `G,...`.
+4. Serial Monitor: **115200** — должна идти строка `G,...,J,...`.
 5. **Закрыть** Serial Monitor / Plotter перед запуском Unity (порт один на всех).
 6. Запустить игру — в Console: `[JoystickSerial] Connected: /dev/cu.wchusbserial…`
 
@@ -274,7 +278,7 @@ J,<up>,<down>,<left>,<right>
 | Датчики всегда -1 | VIN на **D2/D3**, не на 5V; SDA/SCL не перепутаны; датчик смотрит вниз на руку. |
 | Джойстик «сам дёргается» | Мёртвая зона в прошивке; центр стика ~512, пороги ~307 / ~716. |
 | Направления джойстика наоборот | Поменять сравнения порогов в `.ino`, не провода. |
-| Два скрипта не находят плату | Обновлённый код: `MacSerialPort.cs` (DTR, mutex), пассивное опознавание по `J,`/`G,`. |
+| Два скрипта не находят плату | Обновлённый код: `MacSerialPort.cs` (DTR, mutex), пассивное опознавание по `G,...,J,...` / `J,` / `G,`. |
 
 ---
 
@@ -283,7 +287,7 @@ J,<up>,<down>,<left>,<right>
 | Путь | Назначение |
 |------|------------|
 | `ArduinoFirmware/CombinedBoard/CombinedBoard.ino` | Прошивка combined |
-| `ArduinoFirmware/GestureSensors/GestureSensors.ino` | 4 датчика |
+| `ArduinoFirmware/GestureSensors/GestureSensors.ino` | 2 датчика (игрок 1) |
 | `ArduinoFirmware/Joystick/Joystick.ino` | Только джойстик |
 | `UnityProject/Assets/Scripts/lady_bug/JoystickSerial.cs` | Приём combined / joystick |
 | `UnityProject/Assets/Scripts/lady_bug/GestureSensorSerial.cs` | Приём gesture board |
@@ -291,5 +295,6 @@ J,<up>,<down>,<left>,<right>
 | `UnityProject/Assets/Scripts/lady_bug/JoystickInput.cs` | Джойстик → сигналы |
 | `UnityProject/Assets/Scripts/lady_bug/StartScreenController.cs` | Меню, авто-определение |
 | `UnityProject/Assets/Scripts/lady_bug/MacSerialPort.cs` | DTR, блокировка порта |
+| `UnityProject/Assets/Scripts/lady_bug/PlayerBugVisuals.cs` | Спрайты P1/P2 (светлый/тёмный) |
 
 Подробнее об архитектуре Unity — [`technical-details.md`](technical-details.md), §4 и §5.7.

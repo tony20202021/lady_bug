@@ -7,8 +7,8 @@ using System.Threading;
 using UnityEngine;
 
 // Reads the gesture-sensor Arduino (see ArduinoFirmware/GestureSensors) over
-// serial and exposes the latest hand-distance readings and brake-button
-// state for both players. Port I/O runs on a background thread; Update()
+// serial and exposes the latest hand-distance readings (player 1, left/right
+// mm). Port I/O runs on a background thread; Update()
 // just publishes the latest snapshot to the main thread. macOS only,
 // matching this project's build target (BuildScript.cs only builds
 // StandaloneOSX) — Unity doesn't expose System.IO.Ports, so this talks to
@@ -26,26 +26,25 @@ public sealed class GestureSensorSerial : MonoBehaviour
     public bool IsConnected { get; private set; }
     public int Player1LeftMm { get; private set; } = -1;
     public int Player1RightMm { get; private set; } = -1;
-    public bool Player1Brake { get; private set; }
-    public int Player2LeftMm { get; private set; } = -1;
-    public int Player2RightMm { get; private set; } = -1;
-    public bool Player2Brake { get; private set; }
 
     // Scaffold for an upcoming physical exit button on the controller —
     // which pin/button isn't decided yet, so this isn't wired into
     // ParseLine/the "G,..." wire protocol below at all yet and always
     // reads false. Once the button is chosen, extend the firmware sketch's
-    // line format and set this from the new field the same way Player1Brake
-    // etc. are set below — DuckToExitController already reacts to this
-    // going true the instant it's wired, no other changes needed there.
+    // line format and set this from the new field — DuckToExitController
+    // already reacts to this going true the instant it's wired, no other
+    // changes needed there.
     public bool ExitButtonPressed { get; private set; }
 
     private Thread _thread;
     private volatile bool _stopRequested;
     private volatile bool _connected;
     private readonly object _lock = new object();
-    private readonly int[] _latest = { -1, -1, -1, -1, -1, -1 };
+    private readonly int[] _latest = { -1, -1 };
     private bool _hasNewValues;
+    private bool _wasConnected;
+    private float _lastValuesTime;
+    private const float ValuesStaleSeconds = 0.5f;
 
     private void Awake()
     {
@@ -68,21 +67,33 @@ public sealed class GestureSensorSerial : MonoBehaviour
 
     private void Update()
     {
-        IsConnected = _connected;
+        bool connected = _connected;
+        IsConnected = connected;
+
+        if (!connected && _wasConnected)
+            ClearReadings();
+
+        _wasConnected = connected;
 
         lock (_lock)
         {
-            if (!_hasNewValues)
-                return;
-
-            _hasNewValues = false;
-            Player1LeftMm = _latest[0];
-            Player1RightMm = _latest[1];
-            Player1Brake = _latest[2] != 0;
-            Player2LeftMm = _latest[3];
-            Player2RightMm = _latest[4];
-            Player2Brake = _latest[5] != 0;
+            if (_hasNewValues)
+            {
+                _hasNewValues = false;
+                Player1LeftMm = _latest[0];
+                Player1RightMm = _latest[1];
+                _lastValuesTime = Time.realtimeSinceStartup;
+            }
         }
+
+        if (connected && Time.realtimeSinceStartup - _lastValuesTime > ValuesStaleSeconds)
+            ClearReadings();
+    }
+
+    private void ClearReadings()
+    {
+        Player1LeftMm = -1;
+        Player1RightMm = -1;
     }
 
     private void RunLoop()
@@ -209,6 +220,7 @@ public sealed class GestureSensorSerial : MonoBehaviour
             MacNative.tcflush(fd, MacNative.FlushInputAndOutput);
 
             _connected = true;
+            ClearReadings();
             Debug.Log("[GestureSensorSerial] Connected: " + portPath);
 
             StringBuilder line = new StringBuilder();
@@ -241,28 +253,29 @@ public sealed class GestureSensorSerial : MonoBehaviour
         }
     }
 
-    // Expects "G,<p1Left>,<p1Right>,<p1Brake>,<p2Left>,<p2Right>,<p2Brake>" —
-    // see ArduinoFirmware/GestureSensors for the exact protocol this is
-    // matched against. Brake fields are 0/1, distances are millimetres.
+    // Expects "G,<left_mm>,<right_mm>" — see ArduinoFirmware/GestureSensors.
     private void ParseLine(string trimmedLine)
     {
         if (!trimmedLine.StartsWith("G,"))
             return;
 
         string[] fields = trimmedLine.Split(',');
-        if (fields.Length != 7)
+        if (fields.Length != 3)
             return;
 
-        int[] values = new int[6];
-        for (int i = 0; i < 6; i++)
+        int[] values = new int[2];
+        for (int i = 0; i < 2; i++)
         {
             if (!int.TryParse(fields[i + 1], out values[i]))
                 return;
         }
 
+        values[0] = GestureInput.SanitizeDistanceMm(values[0]);
+        values[1] = GestureInput.SanitizeDistanceMm(values[1]);
+
         lock (_lock)
         {
-            Array.Copy(values, _latest, 6);
+            Array.Copy(values, _latest, 2);
             _hasNewValues = true;
         }
     }

@@ -10,18 +10,50 @@ public class JoystickActionIndicator : MonoBehaviour
 
     private void Update()
     {
-        if (actionText == null || joystickInput == null || !joystickInput.enabled)
+        if (actionText == null)
             return;
 
-        if (joystickInput.UpHeld)
+        if (!TryReadJoystickState(out bool up, out bool down, out bool left, out bool right))
+        {
+            actionText.text = "–";
+            return;
+        }
+
+        if (up)
             actionText.text = "ПРЫЖОК";
-        else if (joystickInput.DownHeld)
+        else if (down)
             actionText.text = "ПРИСЕСТЬ";
-        else if (joystickInput.LeftHeld)
+        else if (left)
             actionText.text = "ВЛЕВО";
-        else if (joystickInput.RightHeld)
+        else if (right)
             actionText.text = "ВПРАВО";
         else
             actionText.text = "–";
+    }
+
+    private bool TryReadJoystickState(out bool up, out bool down, out bool left, out bool right)
+    {
+        up = down = left = right = false;
+
+        JoystickSerial serial = JoystickSerial.Instance;
+        if (serial != null && serial.IsConnected)
+        {
+            up = serial.Up;
+            down = serial.Down;
+            left = serial.Left;
+            right = serial.Right;
+            return true;
+        }
+
+        if (joystickInput != null && joystickInput.enabled)
+        {
+            up = joystickInput.UpHeld;
+            down = joystickInput.DownHeld;
+            left = joystickInput.LeftHeld;
+            right = joystickInput.RightHeld;
+            return true;
+        }
+
+        return false;
     }
 }

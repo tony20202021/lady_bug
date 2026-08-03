@@ -66,17 +66,201 @@ public class LiveBugReactionAnimator : MonoBehaviour
     // of the key/gesture), unlike jump/duck which are momentary. Clamped to
     // one step either way so it can't go past laneXLeft/laneXRight.
     private int _laneIndex;
+    private readonly GestureInput.HandFlapTracker _leftFlapTracker = new GestureInput.HandFlapTracker();
+    private readonly GestureInput.HandFlapTracker _rightFlapTracker = new GestureInput.HandFlapTracker();
+    private bool _sensorPrevLeanLeftHeld;
+    private bool _sensorPrevLeanRightHeld;
+    private bool _joystickPrevLeftHeld;
+    private bool _joystickPrevRightHeld;
 
-    // Only the real distance-sensor path — not the menu's always-on
-    // GestureInput (see StartScreenController.RestoreMenuGestureMode) and
-    // not the old keyboard-gesture simulator keys (Q/A/E/D).
-    private bool GestureActive => gestureInput != null && gestureInput.enabled && gestureInput.UseRealSensors;
-    private bool JoystickActive => joystickInput != null && joystickInput.enabled;
+    private bool UsesLinkedGestureInput()
+    {
+        return gestureInput != null
+            && gestureInput.enabled
+            && gestureInput.UseRealSensors
+            && gestureInput.gameObject.activeInHierarchy;
+    }
 
-    private bool UpHeld() => GestureActive ? gestureInput.JumpHeld : JoystickActive ? joystickInput.UpHeld : Input.GetKey(upKey);
-    private bool DownHeld() => GestureActive ? gestureInput.DuckHeld : JoystickActive ? joystickInput.DownHeld : Input.GetKey(downKey);
-    private bool LeanLeftDown() => GestureActive ? gestureInput.LeanLeftDown : JoystickActive ? joystickInput.LeftDown : Input.GetKeyDown(leftKey);
-    private bool LeanRightDown() => GestureActive ? gestureInput.LeanRightDown : JoystickActive ? joystickInput.RightDown : Input.GetKeyDown(rightKey);
+    private bool UsesLinkedJoystickInput()
+    {
+        return joystickInput != null && joystickInput.enabled;
+    }
+
+    private bool UpHeld()
+    {
+        if (UsesLinkedGestureInput())
+            return gestureInput.JumpHeld;
+        if (TryReadSensorJumpHeld())
+            return true;
+        if (TryReadJoystickUp(out bool up))
+            return up;
+        return Input.GetKey(upKey);
+    }
+
+    private bool DownHeld()
+    {
+        if (UsesLinkedGestureInput())
+            return gestureInput.DuckHeld;
+        if (TryReadSensorDuckHeld())
+            return true;
+        if (TryReadJoystickDown(out bool down))
+            return down;
+        return Input.GetKey(downKey);
+    }
+
+    private bool LeanLeftDown()
+    {
+        if (UsesLinkedGestureInput())
+            return gestureInput.LeanLeftDown;
+        if (TryReadSensorLeanLeftDown())
+            return true;
+        if (TryReadJoystickLeftDown(out bool left))
+            return left;
+        return Input.GetKeyDown(leftKey);
+    }
+
+    private bool LeanRightDown()
+    {
+        if (UsesLinkedGestureInput())
+            return gestureInput.LeanRightDown;
+        if (TryReadSensorLeanRightDown())
+            return true;
+        if (TryReadJoystickRightDown(out bool right))
+            return right;
+        return Input.GetKeyDown(rightKey);
+    }
+
+    private bool IsSensorPlayerBug()
+    {
+        return gestureInput != null && gestureInput.gameObject.name.Contains("Left");
+    }
+
+    private bool TryReadSensorJumpHeld()
+    {
+        if (!IsSensorPlayerBug())
+            return false;
+        if (!GestureInput.TryGetLiveHandDistances(gestureInput, out int leftMm, out int rightMm))
+            return false;
+        return GestureInput.BothHandsFlapping(_leftFlapTracker, _rightFlapTracker, leftMm, rightMm);
+    }
+
+    private bool TryReadSensorDuckHeld()
+    {
+        if (!IsSensorPlayerBug())
+            return false;
+        if (!GestureInput.TryGetLiveHandDistances(gestureInput, out int leftMm, out int rightMm))
+            return false;
+        return GestureInput.DuckHeldFromDistances(leftMm, rightMm);
+    }
+
+    private bool TryReadSensorLeanLeftDown()
+    {
+        if (!IsSensorPlayerBug())
+            return false;
+        if (!GestureInput.TryGetLiveHandDistances(gestureInput, out int leftMm, out int rightMm))
+            return false;
+        bool held = GestureInput.LeanLeftHeldFromDistances(leftMm, rightMm);
+        bool down = held && !_sensorPrevLeanLeftHeld;
+        _sensorPrevLeanLeftHeld = held;
+        return down;
+    }
+
+    private bool TryReadSensorLeanRightDown()
+    {
+        if (!IsSensorPlayerBug())
+            return false;
+        if (!GestureInput.TryGetLiveHandDistances(gestureInput, out int leftMm, out int rightMm))
+            return false;
+        bool held = GestureInput.LeanRightHeldFromDistances(leftMm, rightMm);
+        bool down = held && !_sensorPrevLeanRightHeld;
+        _sensorPrevLeanRightHeld = held;
+        return down;
+    }
+
+    private bool IsJoystickPlayerBug()
+    {
+        return gestureInput != null && gestureInput.gameObject.name.Contains("Right");
+    }
+
+    private bool TryReadJoystickUp(out bool up)
+    {
+        up = false;
+        if (!IsJoystickPlayerBug())
+            return false;
+        JoystickSerial serial = JoystickSerial.Instance;
+        if (serial != null && serial.IsConnected)
+        {
+            up = serial.Up;
+            return true;
+        }
+        if (UsesLinkedJoystickInput())
+        {
+            up = joystickInput.UpHeld;
+            return true;
+        }
+        return false;
+    }
+
+    private bool TryReadJoystickDown(out bool down)
+    {
+        down = false;
+        if (!IsJoystickPlayerBug())
+            return false;
+        JoystickSerial serial = JoystickSerial.Instance;
+        if (serial != null && serial.IsConnected)
+        {
+            down = serial.Down;
+            return true;
+        }
+        if (UsesLinkedJoystickInput())
+        {
+            down = joystickInput.DownHeld;
+            return true;
+        }
+        return false;
+    }
+
+    private bool TryReadJoystickLeftDown(out bool left)
+    {
+        left = false;
+        if (!IsJoystickPlayerBug())
+            return false;
+        JoystickSerial serial = JoystickSerial.Instance;
+        if (serial != null && serial.IsConnected)
+        {
+            bool held = serial.Left;
+            left = held && !_joystickPrevLeftHeld;
+            _joystickPrevLeftHeld = held;
+            return true;
+        }
+        if (UsesLinkedJoystickInput())
+        {
+            left = joystickInput.LeftDown;
+            return true;
+        }
+        return false;
+    }
+
+    private bool TryReadJoystickRightDown(out bool right)
+    {
+        right = false;
+        if (!IsJoystickPlayerBug())
+            return false;
+        JoystickSerial serial = JoystickSerial.Instance;
+        if (serial != null && serial.IsConnected)
+        {
+            bool held = serial.Right;
+            right = held && !_joystickPrevRightHeld;
+            _joystickPrevRightHeld = held;
+            return true;
+        }
+        if (UsesLinkedJoystickInput())
+        {
+            right = joystickInput.RightDown;
+            return true;
+        }
+        return false;
+    }
 
     private void Awake()
     {
@@ -95,6 +279,10 @@ public class LiveBugReactionAnimator : MonoBehaviour
         CaptureRestPose();
         ApplyRestPose();
         _settleUntil = Time.time + 0.2f;
+        _sensorPrevLeanLeftHeld = false;
+        _sensorPrevLeanRightHeld = false;
+        _joystickPrevLeftHeld = false;
+        _joystickPrevRightHeld = false;
     }
 
     private void CaptureRestPose()
@@ -104,6 +292,19 @@ public class LiveBugReactionAnimator : MonoBehaviour
 
         _restPos = bugImage.rectTransform.anchoredPosition;
         _restScale = bugImage.rectTransform.localScale;
+    }
+
+    public void ApplyBugLook(Texture2D normal, Texture2D air1, Texture2D air2, Color tint)
+    {
+        bugNormalTexture = normal;
+        bugAirTexture1 = air1;
+        bugAirTexture2 = air2;
+        if (bugImage == null)
+            return;
+
+        bugImage.color = tint;
+        if (normal != null)
+            bugImage.texture = normal;
     }
 
     private void ApplyRestPose()

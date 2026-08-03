@@ -37,10 +37,9 @@ public sealed class JoystickSerial : MonoBehaviour
     public bool Left { get; private set; }
     public bool Right { get; private set; }
 
-    // Only ever populated if the connected board actually sends a "G,..."
-    // line (the combined joystick+sensors variant) — stays at the -1 "no
-    // valid target" default forever on a plain joystick-only board, which
-    // GestureInput already treats as "no reading" (see HandStateForDistance).
+    // Only ever populated if the connected board sends hand readings (the
+    // combined G+J line from CombinedBoard, or a legacy separate "G,..." line).
+    public bool HasHandSensors { get; private set; }
     public int HandLeftMm { get; private set; } = -1;
     public int HandRightMm { get; private set; } = -1;
 
@@ -52,6 +51,9 @@ public sealed class JoystickSerial : MonoBehaviour
     private readonly int[] _latestHands = { -1, -1 };
     private bool _hasNewValues;
     private bool _hasNewHandValues;
+    private bool _wasConnected;
+    private float _lastHandValuesTime;
+    private const float HandValuesStaleSeconds = 0.5f;
 
     private void Awake()
     {
@@ -74,7 +76,13 @@ public sealed class JoystickSerial : MonoBehaviour
 
     private void Update()
     {
-        IsConnected = _connected;
+        bool connected = _connected;
+        IsConnected = connected;
+
+        if (!connected && _wasConnected)
+            ClearHandReadings();
+
+        _wasConnected = connected;
 
         lock (_lock)
         {
@@ -92,8 +100,22 @@ public sealed class JoystickSerial : MonoBehaviour
                 _hasNewHandValues = false;
                 HandLeftMm = _latestHands[0];
                 HandRightMm = _latestHands[1];
+                _lastHandValuesTime = Time.realtimeSinceStartup;
             }
         }
+
+        if (HasHandSensors
+            && connected
+            && Time.realtimeSinceStartup - _lastHandValuesTime > HandValuesStaleSeconds)
+        {
+            ClearHandReadings();
+        }
+    }
+
+    private void ClearHandReadings()
+    {
+        HandLeftMm = -1;
+        HandRightMm = -1;
     }
 
     private void RunLoop()
@@ -214,8 +236,10 @@ public sealed class JoystickSerial : MonoBehaviour
     {
         if (line.StartsWith("J,"))
             return line.Split(',').Length == 5;
+        if (line.StartsWith("G,") && line.IndexOf(",J,", StringComparison.Ordinal) >= 0)
+            return line.Split(',').Length == 8;
         if (line.StartsWith("G,"))
-            return line.Split(',').Length == 7;
+            return line.Split(',').Length == 3;
         return false;
     }
 
@@ -232,6 +256,8 @@ public sealed class JoystickSerial : MonoBehaviour
             MacNative.tcflush(fd, MacNative.FlushInputAndOutput);
 
             _connected = true;
+            HasHandSensors = false;
+            ClearHandReadings();
             Debug.Log("[JoystickSerial] Connected: " + portPath);
 
             StringBuilder line = new StringBuilder();
@@ -264,49 +290,72 @@ public sealed class JoystickSerial : MonoBehaviour
         }
     }
 
-    // Expects "J,<up>,<down>,<left>,<right>" — see ArduinoFirmware/Joystick
-    // for the exact protocol this is matched against. Each field is 0/1.
-    // A combined board (ArduinoFirmware/CombinedBoard) also sends
-    // "G,<left_mm>,<right_mm>,<brake>,-1,-1,0" on its own line, same
-    // 7-field shape GestureSensorSerial's own dedicated-board protocol
-    // uses — only the first 2 fields (this board's one player's worth of
-    // sensors) are kept; the rest (brake, player 2's slot) don't apply here.
+    // CombinedBoard: "G,<left_mm>,<right_mm>,J,<up>,<down>,<left>,<right>"
+    // Standalone Joystick: "J,<up>,<down>,<left>,<right>" only.
     private void ParseLine(string trimmedLine)
     {
-        if (trimmedLine.StartsWith("J,"))
+        if (trimmedLine.StartsWith("G,", StringComparison.Ordinal))
         {
-            string[] fields = trimmedLine.Split(',');
-            if (fields.Length != 5)
+            int jMarker = trimmedLine.IndexOf(",J,", StringComparison.Ordinal);
+            if (jMarker >= 0)
+            {
+                ParseGestureFields(trimmedLine.Substring(0, jMarker));
+                ParseJoystickFields(trimmedLine.Substring(jMarker + 1));
                 return;
-
-            int[] values = new int[4];
-            for (int i = 0; i < 4; i++)
-            {
-                if (!int.TryParse(fields[i + 1], out values[i]))
-                    return;
             }
 
-            lock (_lock)
-            {
-                Array.Copy(values, _latest, 4);
-                _hasNewValues = true;
-            }
+            ParseGestureFields(trimmedLine);
+            return;
         }
-        else if (trimmedLine.StartsWith("G,"))
+
+        if (trimmedLine.StartsWith("J,", StringComparison.Ordinal))
+            ParseJoystickFields(trimmedLine);
+    }
+
+    private void ParseJoystickFields(string trimmedLine)
+    {
+        if (!trimmedLine.StartsWith("J,", StringComparison.Ordinal))
+            return;
+
+        string[] fields = trimmedLine.Split(',');
+        if (fields.Length != 5)
+            return;
+
+        int[] values = new int[4];
+        for (int i = 0; i < 4; i++)
         {
-            string[] fields = trimmedLine.Split(',');
-            if (fields.Length != 7)
+            if (!int.TryParse(fields[i + 1], out values[i]))
                 return;
+        }
 
-            int[] values = new int[2];
-            if (!int.TryParse(fields[1], out values[0]) || !int.TryParse(fields[2], out values[1]))
-                return;
+        lock (_lock)
+        {
+            Array.Copy(values, _latest, 4);
+            _hasNewValues = true;
+        }
+    }
 
-            lock (_lock)
-            {
-                Array.Copy(values, _latestHands, 2);
-                _hasNewHandValues = true;
-            }
+    private void ParseGestureFields(string trimmedLine)
+    {
+        if (!trimmedLine.StartsWith("G,", StringComparison.Ordinal))
+            return;
+
+        string[] fields = trimmedLine.Split(',');
+        if (fields.Length != 3)
+            return;
+
+        int[] values = new int[2];
+        if (!int.TryParse(fields[1], out values[0]) || !int.TryParse(fields[2], out values[1]))
+            return;
+
+        values[0] = GestureInput.SanitizeDistanceMm(values[0]);
+        values[1] = GestureInput.SanitizeDistanceMm(values[1]);
+
+        lock (_lock)
+        {
+            HasHandSensors = true;
+            Array.Copy(values, _latestHands, 2);
+            _hasNewHandValues = true;
         }
     }
 

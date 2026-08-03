@@ -9,6 +9,13 @@ public static class SceneSetup
     const int LaneCount = 4;
     static float LaneWidth => RoadLayout.LaneWidthFor(LaneCount);
 
+    static readonly string PlayerOneBugSprite = "LadyBug1.png";
+    static readonly string PlayerTwoBugSprite = "LadyBug2.png";
+    static readonly Color PlayerOneBugTint = Color.white;
+    static readonly Color PlayerTwoBugTint = new Color(0.52f, 0.52f, 0.56f);
+
+    // P1 always light (LadyBug1); P2 dark (LadyBug2) — different art, both white tint.
+
     static void GetStartLanes(out int startLaneRight, out int startLaneLeft) =>
         RoadLayout.GetStartLanes(LaneCount, out startLaneRight, out startLaneLeft);
 
@@ -87,10 +94,12 @@ public static class SceneSetup
         // player (see StartScreenController's joystickRight), and this is
         // its keyboard-only fallback; IJKL sits on the keyboard's own right
         // side, same relative hand position WASD gives player-left.
+        // P1 (PlayerLeft, sensors) = light LadyBug1; P2 (PlayerRight, joystick)
+        // = dark LadyBug2 — same in menu, gameplay, and training previews.
         GameObject playerRight = CreatePlayer("PlayerRight", KeyCode.J, KeyCode.L, KeyCode.I, KeyCode.K,
-            KeyCode.U, KeyCode.J, KeyCode.O, KeyCode.L, startLaneRight, Color.white, "LadyBug1.png");
+            KeyCode.U, KeyCode.J, KeyCode.O, KeyCode.L, startLaneRight, PlayerTwoBugTint, PlayerTwoBugSprite);
         GameObject playerLeft = CreatePlayer("PlayerLeft", KeyCode.A, KeyCode.D, KeyCode.W, KeyCode.S,
-            KeyCode.Q, KeyCode.A, KeyCode.E, KeyCode.D, startLaneLeft, new Color(0.55f, 0.75f, 1f), "LadyBug2.png");
+            KeyCode.Q, KeyCode.A, KeyCode.E, KeyCode.D, startLaneLeft, PlayerOneBugTint, PlayerOneBugSprite);
 
         CreateCamera(playerRight.transform);
         CreateRoad();
@@ -2566,10 +2575,10 @@ public static class SceneSetup
     // menu chrome) and reveal them once the game actually begins.
     static (GameObject left, GameObject right) CreateGestureIndicators(GameObject playerRight, GameObject playerLeft)
     {
-        // Screen-left = joystick (player 2); screen-right = sensors (player 1),
-        // matching the physical rig layout on the УПРАВЛЕНИЕ page sketch.
-        GameObject leftCanvas = CreateJoystickGesturePanel(playerRight, new Vector2(0f, 0f));
-        GameObject rightCanvas = CreateSensorGesturePanel(playerLeft, new Vector2(1f, 0f));
+        // Screen-left = height sensors (player 1); screen-right = joystick
+        // (player 2), matching the physical rig on the cabinet.
+        GameObject leftCanvas = CreateSensorGesturePanel(playerLeft, new Vector2(0f, 0f));
+        GameObject rightCanvas = CreateJoystickGesturePanel(playerRight, new Vector2(1f, 0f));
         return (leftCanvas, rightCanvas);
     }
 
@@ -2706,33 +2715,7 @@ public static class SceneSetup
         scaler.matchWidthOrHeight = 1f;
         canvasGo.AddComponent<GraphicRaycaster>();
 
-        const float actionY = 20f;
-        const float actionHeight = 70f;
-        var actionGo = new GameObject("JoystickAction");
-        actionGo.transform.SetParent(canvasGo.transform, false);
-        Text actionText = actionGo.AddComponent<Text>();
-        actionText.font = GameFont;
-        actionText.fontSize = 40;
-        actionText.fontStyle = FontStyle.Bold;
-        actionText.alignment = leftSide ? TextAnchor.LowerLeft : TextAnchor.LowerRight;
-        actionText.color = new Color(1f, 0.85f, 0.2f);
-        actionText.text = "–";
-        actionGo.AddComponent<Outline>().effectColor = Color.black;
-        RectTransform actionRt = actionText.GetComponent<RectTransform>();
-        actionRt.anchorMin = anchor;
-        actionRt.anchorMax = anchor;
-        actionRt.pivot = anchor;
-        actionRt.sizeDelta = new Vector2(340f, actionHeight);
-        actionRt.anchoredPosition = new Vector2(sign * 20f, actionY);
-
-        var actionIndicatorGo = new GameObject(player.name + "JoystickActionIndicator");
-        JoystickActionIndicator actionIndicator = actionIndicatorGo.AddComponent<JoystickActionIndicator>();
-        SerializedObject actionSo = new SerializedObject(actionIndicator);
-        actionSo.FindProperty("joystickInput").objectReferenceValue = player.GetComponent<JoystickInput>();
-        actionSo.FindProperty("actionText").objectReferenceValue = actionText;
-        actionSo.ApplyModifiedPropertiesWithoutUndo();
-
-        const float crossY = actionY + actionHeight + 24f;
+        const float crossY = 20f + 24f;
         const float crossSize = 150f;
         const float armOffset = 46f;
         var crossGo = new GameObject("JoystickCross");
@@ -2744,12 +2727,14 @@ public static class SceneSetup
         crossRt.sizeDelta = new Vector2(crossSize, crossSize);
         crossRt.anchoredPosition = new Vector2(sign * (20f + crossSize * 0.5f), crossY + crossSize * 0.5f);
 
-        Text upArrow = CreateJoystickHudArrow(crossGo.transform, "Up", new Vector2(0f, armOffset), "↑");
-        Text downArrow = CreateJoystickHudArrow(crossGo.transform, "Down", new Vector2(0f, -armOffset), "↓");
-        Text leftArrow = CreateJoystickHudArrow(crossGo.transform, "Left", new Vector2(-armOffset, 0f), "←");
-        Text rightArrow = CreateJoystickHudArrow(crossGo.transform, "Right", new Vector2(armOffset, 0f), "→");
-        Text centerDot = CreateJoystickHudArrow(crossGo.transform, "Center", Vector2.zero, "•");
+        // ComicCAT lacks Unicode arrows — ASCII + built-in font so labels render.
+        Font arrowFont = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        Text centerDot = CreateJoystickHudArrow(crossGo.transform, "Center", Vector2.zero, "+", arrowFont);
         centerDot.fontSize = 52;
+        Text upArrow = CreateJoystickHudArrow(crossGo.transform, "Up", new Vector2(0f, armOffset), "^", arrowFont);
+        Text downArrow = CreateJoystickHudArrow(crossGo.transform, "Down", new Vector2(0f, -armOffset), "v", arrowFont);
+        Text leftArrow = CreateJoystickHudArrow(crossGo.transform, "Left", new Vector2(-armOffset, 0f), "<", arrowFont);
+        Text rightArrow = CreateJoystickHudArrow(crossGo.transform, "Right", new Vector2(armOffset, 0f), ">", arrowFont);
 
         var indicatorGo = new GameObject(player.name + "JoystickIndicator");
         JoystickIndicator indicator = indicatorGo.AddComponent<JoystickIndicator>();
@@ -2765,16 +2750,16 @@ public static class SceneSetup
         return canvasGo;
     }
 
-    static Text CreateJoystickHudArrow(Transform parent, string name, Vector2 anchoredPos, string glyph)
+    static Text CreateJoystickHudArrow(Transform parent, string name, Vector2 anchoredPos, string glyph, Font font)
     {
         var go = new GameObject(name);
         go.transform.SetParent(parent, false);
         Text text = go.AddComponent<Text>();
-        text.font = GameFont;
-        text.fontSize = 58;
+        text.font = font != null ? font : GameFont;
+        text.fontSize = 64;
         text.fontStyle = FontStyle.Bold;
         text.alignment = TextAnchor.MiddleCenter;
-        text.color = new Color(0.33f, 0.33f, 0.33f);
+        text.color = new Color(0.55f, 0.55f, 0.55f);
         text.text = glyph;
         go.AddComponent<Outline>().effectColor = Color.black;
         RectTransform rt = text.GetComponent<RectTransform>();
@@ -2951,18 +2936,33 @@ public static class SceneSetup
 
         canvasGo.AddComponent<GraphicRaycaster>();
 
-        // Energetic loop while the menu/instructions carousel is up —
-        // stops the instant the game actually starts (BeginGame). Also why
+        // Energetic tracks while the menu/instructions carousel is up —
+        // MenuMusicRotator shuffles through them at random (no repeat back-
+        // to-back). Stops when the game starts (BeginGame). Also why
         // SfxManager mutes pickup/hit one-shots until SpeedController says
         // the game is running — this music, not silence, is the intended
         // backdrop for the start screen.
         var musicGo = new GameObject("StartScreenMusic");
         musicGo.transform.SetParent(canvasGo.transform, false);
         AudioSource musicSource = musicGo.AddComponent<AudioSource>();
-        musicSource.clip = AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Audio/lady_bug/StartScreenMusic.mp3");
-        musicSource.loop = true;
         musicSource.playOnAwake = false;
         musicSource.volume = 0.5f;
+        musicSource.loop = false;
+
+        AudioClip[] menuMusicClips =
+        {
+            AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Audio/lady_bug/StartScreenMusic.mp3"),
+            AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Audio/lady_bug/MenuMusic_PopTrack03.mp3"),
+            AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Audio/lady_bug/MenuMusic_BanjoMan.mp3"),
+        };
+        MenuMusicRotator menuMusic = musicGo.AddComponent<MenuMusicRotator>();
+        SerializedObject menuMusicSo = new SerializedObject(menuMusic);
+        menuMusicSo.FindProperty("source").objectReferenceValue = musicSource;
+        SerializedProperty clipsProp = menuMusicSo.FindProperty("clips");
+        clipsProp.arraySize = menuMusicClips.Length;
+        for (int i = 0; i < menuMusicClips.Length; i++)
+            clipsProp.GetArrayElementAtIndex(i).objectReferenceValue = menuMusicClips[i];
+        menuMusicSo.ApplyModifiedPropertiesWithoutUndo();
 
         // Dim backdrop so the menu reads clearly over the (frozen) road.
         var backdropGo = new GameObject("Backdrop");
@@ -3158,7 +3158,7 @@ public static class SceneSetup
         trickExitHint.fontStyle = FontStyle.Bold;
         trickExitHint.alignment = TextAnchor.MiddleCenter;
         trickExitHint.color = new Color(0.85f, 0.85f, 0.85f);
-        trickExitHint.text = "ВЫХОД — ДЕРЖАТЬ ВНИЗ 5 СЕК";
+        trickExitHint.text = "ВЫХОД — ДЕРЖАТЬ ВНИЗ 8 СЕК";
         trickExitHintGo.AddComponent<Outline>().effectColor = Color.black;
         RectTransform trickExitHintRt = trickExitHint.GetComponent<RectTransform>();
         trickExitHintRt.anchorMin = new Vector2(0.5f, 0f);
@@ -3448,7 +3448,7 @@ public static class SceneSetup
         trainingExit.fontStyle = FontStyle.Bold;
         trainingExit.alignment = TextAnchor.MiddleCenter;
         trainingExit.color = new Color(0.85f, 0.85f, 0.85f);
-        trainingExit.text = "ВЫХОД — ДЕРЖАТЬ ВНИЗ 5 СЕК";
+        trainingExit.text = "ВЫХОД — ДЕРЖАТЬ ВНИЗ 8 СЕК";
         trainingExitGo.AddComponent<Outline>().effectColor = Color.black;
         RectTransform trainingExitRt = trainingExit.GetComponent<RectTransform>();
         trainingExitRt.anchorMin = new Vector2(0.5f, 0.5f);
@@ -3568,6 +3568,7 @@ public static class SceneSetup
         so.FindProperty("gestureCanvasRight").objectReferenceValue = gestureCanvasRight;
         so.FindProperty("gestureCanvasLeft").objectReferenceValue = gestureCanvasLeft;
         so.FindProperty("musicSource").objectReferenceValue = musicSource;
+        so.FindProperty("menuMusic").objectReferenceValue = menuMusic;
         SetPrefabArray(so, "trainingPreviewLeftBugs", trainingPreviewLeftBugs);
         so.ApplyModifiedPropertiesWithoutUndo();
     }
@@ -3745,10 +3746,10 @@ public static class SceneSetup
         // CreatePlayer's own tint args).
         CreateLiveBugPreview(actionColumnGo.transform, new Vector2(liveBugRestX, liveBugRestY), bugHeight,
             playerRight.GetComponent<GestureInput>(), playerRight.GetComponent<JoystickInput>(),
-            KeyCode.J, KeyCode.L, KeyCode.I, KeyCode.K, "LadyBug1.png", Color.white, -140f, liveBugRestX, 160f);
+            KeyCode.J, KeyCode.L, KeyCode.I, KeyCode.K, PlayerTwoBugSprite, PlayerTwoBugTint, -140f, liveBugRestX, 160f);
         leftBug = CreateLiveBugPreview(actionColumnGo.transform, new Vector2(-liveBugRestX, liveBugRestY), bugHeight,
             playerLeft.GetComponent<GestureInput>(), playerLeft.GetComponent<JoystickInput>(),
-            KeyCode.A, KeyCode.D, KeyCode.W, KeyCode.S, "LadyBug2.png", new Color(0.55f, 0.75f, 1f), -160f, -liveBugRestX, 140f);
+            KeyCode.A, KeyCode.D, KeyCode.W, KeyCode.S, PlayerOneBugSprite, PlayerOneBugTint, -160f, -liveBugRestX, 140f);
 
         CreateDashedVerticalDivider(page.transform);
     }
@@ -4375,8 +4376,8 @@ public static class SceneSetup
             const float bugY = 130f;
             const float arrowXOffset = 210f;
 
-            RectTransform bottomBug = CreateTrickBugIcon(content, "LadyBug1.png", new Vector2(0f, -bugY), bugHeight);
-            RectTransform topBug = CreateTrickBugIcon(content, "LadyBug2.png", new Vector2(0f, bugY), bugHeight);
+            RectTransform bottomBug = CreateTrickBugIcon(content, PlayerTwoBugSprite, new Vector2(0f, -bugY), bugHeight);
+            RectTransform topBug = CreateTrickBugIcon(content, PlayerOneBugSprite, new Vector2(0f, bugY), bugHeight);
 
             GameObject downArrows = CreateArrowPair(content, "DownArrows", "↓", new Color(1f, 0.85f, 0.2f), -bugY, arrowXOffset);
             GameObject upArrows = CreateArrowPair(content, "UpArrows", "↑", new Color(1f, 0.85f, 0.2f), bugY, arrowXOffset);
@@ -4477,8 +4478,8 @@ public static class SceneSetup
             // player-right) on the right — same left/right-to-color mapping
             // ВАШИ ДЕЙСТВИЯ's own live bugs use, so ОБРАЗЕЦ doesn't flip it.
             float startY = -ovalYRadius;
-            RectTransform airBug = CreateTrickBugIcon(content, "LadyBug2.png", new Vector2(-bugX, startY), bugHeight);
-            RectTransform groundBug = CreateTrickBugIcon(content, "LadyBug1.png", new Vector2(bugX, startY), bugHeight);
+            RectTransform airBug = CreateTrickBugIcon(content, PlayerOneBugSprite, new Vector2(-bugX, startY), bugHeight);
+            RectTransform groundBug = CreateTrickBugIcon(content, PlayerTwoBugSprite, new Vector2(bugX, startY), bugHeight);
 
             // Single reusable arrow per bug — glyph and position are swapped
             // per beat by RingTrickAnimation itself (up, then sideways in each
@@ -4683,7 +4684,7 @@ public static class SceneSetup
         // Native route reach (±620) is well past half a page — shrunk down
         // (0.47) to actually fit next to ВАШИ ДЕЙСТВИЯ, same reasoning as
         // RingTrickPage's own scale.
-        var (page, leftBug, _) = CreateTrickDiagramPage(parent, "ЧЕХАРДА", "LadyBug2.png", "LadyBug1.png",
+        var (page, leftBug, _) = CreateTrickDiagramPage(parent, "ЧЕХАРДА", PlayerOneBugSprite, PlayerTwoBugSprite,
             "LadyBug2Air1.png", "LadyBug1Air1.png", pathA, pathB, playerRight, playerLeft, 0.47f, 0f, null, wideLaneSpacing, true, arc1, arc2);
         return (page, leftBug);
     }
@@ -4728,7 +4729,7 @@ public static class SceneSetup
         System.Func<float, Vector2> rowB1 = t => Vector2.Lerp(new Vector2(-620f, -70f), new Vector2(-dotGap, -70f), t);
         System.Func<float, Vector2> rowB2 = t => Vector2.Lerp(new Vector2(0f, -70f), new Vector2(620f, -70f), t);
         var dots = new (Vector2, float)[] { (new Vector2(0f, 110f), 16f), (new Vector2(0f, -70f), 16f) };
-        var (page, leftBug, _) = CreateTrickDiagramPage(parent, "СИНХРОН", "LadyBug2.png", "LadyBug1.png",
+        var (page, leftBug, _) = CreateTrickDiagramPage(parent, "СИНХРОН", PlayerOneBugSprite, PlayerTwoBugSprite,
             "LadyBug2Air1.png", null, pathA, pathB, playerRight, playerLeft, 0.47f, 0f, dots, wideLaneSpacing, true, rowA1, rowA2, rowB1, rowB2);
         return (page, leftBug);
     }
@@ -4789,10 +4790,9 @@ public static class SceneSetup
         // content already fits comfortably next to ВАШИ ДЕЙСТВИЯ — just a
         // small safety-margin shrink, not the aggressive one the wide-route
         // pages need.
-        // spriteA=LadyBug2 (blue, player-left) rides pathA (lane 0, left);
-        // spriteB=LadyBug1 (white, player-right) rides pathB (lane 2, right)
-        // — same left/right-to-color mapping ВАШИ ДЕЙСТВИЯ's live bugs use.
-        var (page, leftBug, content) = CreateTrickDiagramPage(parent, "ЗАВИСАНИЕ", "LadyBug2.png", "LadyBug1.png",
+        // spriteA=LadyBug1 (light, player-left) rides pathA; spriteB=LadyBug2
+        // (dark, player-right) rides pathB.
+        var (page, leftBug, content) = CreateTrickDiagramPage(parent, "ЗАВИСАНИЕ", PlayerOneBugSprite, PlayerTwoBugSprite,
             "LadyBug2Air1.png", "LadyBug1Air1.png", pathA, pathB, playerRight, playerLeft, 0.85f);
 
         var counterGo = new GameObject("HoverCounter");
@@ -4879,11 +4879,8 @@ public static class SceneSetup
         };
         // Oval's own reach (±650) is the widest of any trick page's route —
         // shrunk down (0.46) to fit next to ВАШИ ДЕЙСТВИЯ.
-        // spriteA=LadyBug2 (blue, player-left) rides pathA (starts lane 0,
-        // left); spriteB=LadyBug1 (white, player-right) rides pathB (starts
-        // lane 1) — same left/right-to-color mapping ВАШИ ДЕЙСТВИЯ's live
-        // bugs use, so their starting frame doesn't flip it.
-        var (page, leftBug, _) = CreateTrickDiagramPage(parent, "БОЛЬШОЕ КОЛЬЦО", "LadyBug2.png", "LadyBug1.png",
+        // spriteA=LadyBug1 (light, player-left); spriteB=LadyBug2 (dark, player-right).
+        var (page, leftBug, _) = CreateTrickDiagramPage(parent, "БОЛЬШОЕ КОЛЬЦО", PlayerOneBugSprite, PlayerTwoBugSprite,
             "LadyBug2Air1.png", "LadyBug1Air1.png", pathA, pathB, playerRight, playerLeft, 0.46f, 0f, null, wideLaneSpacing, true, oval);
         return (page, leftBug);
     }
@@ -4950,18 +4947,12 @@ public static class SceneSetup
         // dashed line now.
         // Lemniscate's own reach (±600) is well past half a page — shrunk
         // down (0.5) to fit next to ВАШИ ДЕЙСТВИЯ.
-        var (page, leftBug, _) = CreateTrickDiagramPage(parent, "БЕСКОНЕЧНОСТЬ", "LadyBug1.png", "LadyBug2.png",
-            "LadyBug1Air1.png", "LadyBug2Air1.png", pathA, pathB, playerRight, playerLeft, 0.5f, 0f, null, wideLaneSpacing, false, infinity);
+        var (page, leftBug, _) = CreateTrickDiagramPage(parent, "БЕСКОНЕЧНОСТЬ", PlayerOneBugSprite, PlayerTwoBugSprite,
+            "LadyBug2Air1.png", "LadyBug1Air1.png", pathA, pathB, playerRight, playerLeft, 0.5f, 0f, null, wideLaneSpacing, false, infinity);
         return (page, leftBug);
     }
 
-    // spriteFile: LadyBug1.png/LadyBug2.png — same textures the players
-    // actually wear in-game. No label (ArchTrickAnimation's arrows carry
-    // the explanation instead). Tinted to match — white for LadyBug1 (the
-    // real player-right's own tint, see CreatePlayer's own "PlayerRight"
-    // call), light blue for LadyBug2 (player-left's) — inferred from the
-    // filename itself rather than a separate param at every call site,
-    // since every caller already picks the sprite by this same convention.
+    // LadyBug1 = light P1, LadyBug2 = dark P2; both use white tint here.
     static RectTransform CreateTrickBugIcon(Transform parent, string spriteFile, Vector2 pos, float height)
     {
         Texture2D tex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/" + spriteFile);
@@ -4970,7 +4961,7 @@ public static class SceneSetup
         iconGo.transform.SetParent(parent, false);
         RawImage icon = iconGo.AddComponent<RawImage>();
         icon.texture = tex;
-        icon.color = spriteFile.Contains("LadyBug2") ? new Color(0.55f, 0.75f, 1f) : Color.white;
+        icon.color = Color.white;
         RectTransform iconRt = iconGo.GetComponent<RectTransform>();
         iconRt.anchorMin = new Vector2(0.5f, 0.5f);
         iconRt.anchorMax = new Vector2(0.5f, 0.5f);
