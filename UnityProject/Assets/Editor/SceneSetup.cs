@@ -602,7 +602,7 @@ public static class SceneSetup
         float roadWidth = LaneCount * LaneWidth;
         const float sideWidth = 140f;
         float grassCenterOffset = RoadGeometryRuntime.GrassCenterOffset;
-        // Real generated cartoon grass artwork (yandex_api/gen_asset.sh,
+        // Real generated cartoon grass artwork (asset_gen/gen_asset.sh,
         // Assets/Sprites/GrassTile.png — small tufts scattered over a flat
         // green base, tiles reasonably cleanly) instead of a flat color —
         // a plain fill read as "green plastic", not grass, from any
@@ -740,7 +740,7 @@ public static class SceneSetup
 
         if (shoulderPrefabs.Count == 0 && grassPrefabs.Count == 0)
         {
-            Debug.LogWarning("ShoulderDecor: no sprites found — run yandex_api/gen_shoulder_decal_assets.sh then Rebuild Scene");
+            Debug.LogWarning("ShoulderDecor: no sprites found — run asset_gen/gen_shoulder_decal_assets.sh then Rebuild Scene");
             return;
         }
 
@@ -4123,7 +4123,7 @@ public static class SceneSetup
         return palmRt;
     }
 
-    // Real generated artwork (yandex_api/gen_asset.sh) — a volumetric
+    // Real generated artwork (asset_gen/gen_asset.sh) — a volumetric
     // red-ball-on-black-base arcade joystick, replacing the earlier flat
     // procedural base/shaft/knob composition (see git history) with
     // something that actually reads as a physical joystick at a glance.
@@ -5082,7 +5082,7 @@ public static class SceneSetup
         var rowArrowHeads = new GameObject[3];
         float[] rowY = { 245f, 0f, -245f };
 
-        // Real generated medal art (yandex_api/gen_asset.sh, gold/silver/
+        // Real generated medal art (asset_gen/gen_asset.sh, gold/silver/
         // bronze, each with its own embossed star) — replaces an earlier
         // plain flat-tinted circle, which read as just another number next
         // to the result value rather than an actual prize. The medal
@@ -5379,7 +5379,7 @@ public static class SceneSetup
     // (LoaderScreenController's gameStartKeys 1-7, see plan items 9-11) —
     // index 0 is БК's own flowers (lady_bug's real sprites), 1-6 are the
     // other 6 mega-project games' prep artwork, generated via
-    // yandex_api/gen_asset.sh straight into Assets/Sprites/loader/. All 7
+    // asset_gen/gen_asset.sh straight into Assets/Sprites/loader/. All 7
     // currently still hand off into the SAME real game once their own
     // countdown finishes (see CreateLoaderScreen) — only game 1 actually
     // exists yet, per feedback that's fine/expected for now. isPrimaryGame
@@ -5502,7 +5502,7 @@ public static class SceneSetup
         }
 
         // Digit/word overlay — real generated graffiti artwork
-        // (yandex_api/gen_asset.sh, see Assets/Sprites/CountdownGraffiti*.png),
+        // (asset_gen/gen_asset.sh, see Assets/Sprites/CountdownGraffiti*.png),
         // transparent cutouts so it draws directly over the finished flower
         // pile underneath (later sibling, no separate wall background
         // anymore — used to swap in a full-screen brick wall here first).

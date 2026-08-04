@@ -3,34 +3,62 @@
 Скачано автоматически из бесплатных источников с прямой загрузкой.
 Папка для выбора и импорта в Unity (`WinSequence`, Particle System и т.д.).
 
+## Что реально едет в игру
+
+Из всей папки в проект попали **ровно два файла**, оба CC0, оба без
+обязательной атрибуции (проверено побайтово — `cmp` совпадает):
+
+| Исходник здесь | Копия в проекте |
+|---|---|
+| `opengameart/jellyfizh_Confetti.png` | `UnityProject/Assets/Sprites/lady_bug/Celebration/Confetti_spritesheet.png` |
+| `opengameart/Firework_spritesheet.png` | `UnityProject/Assets/Sprites/lady_bug/Celebration/Firework_spritesheet.png` |
+
+Разрезанные кадры (`Confetti/frame_00…58.png`, `Firework/frame_00…29.png`)
+лежат в `UnityProject/Assets/Resources/Celebration/` — именно оттуда их грузит
+`WinCelebrationFx.cs` через `Resources.LoadAll<Texture2D>`. Дубликаты этих же
+89 кадров в `Assets/Sprites/lady_bug/Celebration/` удалены (2026-08-04) —
+игра их не использовала.
+
 ## Скачано ✅
 
 ### OpenGameArt (`opengameart/`)
 
-| Файл | Автор | Лицензия | Описание |
-|------|-------|----------|----------|
-| `jellyfizh_Confetti.png` | jellyfizh | CC0 | Анимированный spritesheet конфетти 4096×4096, **альфа 0–255** |
-| `davididev_confetti_spritesheet.png` | davididev | атрибуция `davididev` | Белые частицы конфетти 768×768, перекрашиваются в Unity |
-| `party_confetti_sprite10_strip10.png` | OpenGameArt | свободно | 10 кадров, полоска 640×64, pixel confetti |
-| `Firework_spritesheet.png` | OpenGameArt | см. страницу | Большой spritesheet салюта 1536×1280, **альфа** |
-| `pixel_fireworks_4colors.zip` | myriad / Stealthix-style | CC0 (салют) | 4 цвета: red/blue/yellow/violet, кадры `firework_red0..7.png` |
+| Файл | Автор | Лицензия | Источник | Атрибуция | Описание |
+|------|-------|----------|----------|-----------|----------|
+| `jellyfizh_Confetti.png` | jellyfizh | **CC0** | https://opengameart.org/content/confetti-effect-spritesheet | не требуется | Анимированный spritesheet конфетти 4096×4096, **альфа 0–255**. **Едет в игру** |
+| `Firework_spritesheet.png` | jellyfizh | **CC0** | https://opengameart.org/content/fireworks-effect-spritesheet | не требуется | Большой spritesheet салюта 1536×1280, **альфа**. **Едет в игру** |
+| `davididev_confetti_spritesheet.png` | davididev | **CC-BY 3.0** | https://opengameart.org/content/confetti-particle | **обязательна**: «davididev or davididev.com» | Белые частицы конфетти 768×768, перекрашиваются в Unity. **В игру НЕ едет** — если когда-нибудь поедет, атрибуцию придётся добавить |
+| `party_confetti_sprite10_strip10.png` | sketcherskt | **CC0** | https://opengameart.org/content/party-confetti-sprite-sheet-effect | не требуется («anyone can use my artwork for whatever») | 10 кадров, полоска 640×64, pixel confetti |
+| `pixel_fireworks_4colors.zip` | myriad | **CC0 1.0** | https://opengameart.org/content/fireworks | не требуется | 4 цвета: red/blue/yellow/violet, кадры `firework_red0..7.png`. Скачан как `Fireworks.zip`, переименован здесь |
 
 Распаковано: `pixel_fireworks_4colors_extracted/`
 
-### Kenney (`kenney/`)
+### Удалено 2026-08-04 — паки Kenney (`kenney/`, `github/`)
 
-| Файл | Лицензия | Описание |
-|------|----------|----------|
-| `kenney_particlePack.zip` | CC0 | 80+ PNG 512×512: circle, star, spark, magic, flare, fire… |
-| `kenney_particlePack_extracted/` | | Отдельные PNG + Unity sample package внутри zip |
+~28.4 МБ (200 файлов) вычищено: ни один байт из этих паков в проект не попал
+(проверено семью способами: хеши, попиксельное сравнение, совпадения имён,
+GUID из `.unitypackage`, грепы по всем `*.cs`). Обе распакованные копии были
+побайтовым дубликатом своих же zip. Обе лицензии — CC0, credit optional,
+поэтому удаление не создаёт никаких обязательств.
 
-**Примечание:** у Kenney частицы часто на чёрном фоне (альфа везде 255) — в Unity использовать **Additive** / **Alpha Blend** материал.
+Восстанавливается одной командой, если понадобится:
 
-### GitHub (`github/`)
+```bash
+# Kenney Particle Pack (CC0). Внимание: прямой URL kenney.nl/media/... сейчас
+# отдаёт 404 — рабочее зеркало на OpenGameArt, проверено побайтово:
+curl -L -o kenney_particlePack.zip \
+  https://opengameart.org/sites/default/files/kenney_particlePack.zip
 
-| Файл | Описание |
-|------|----------|
-| `calinou_kenney-particle-pack.zip` | Тот же Kenney pack, упакован для Godot (дубликат, можно не использовать) |
+# Форк Calinou (тот же пак, пересобран для Godot, с корректной прямой альфой)
+curl -L -o calinou_kenney-particle-pack.zip \
+  https://github.com/Calinou/kenney-particle-pack/archive/refs/heads/master.zip
+```
+
+Страница-первоисточник Kenney: https://kenney.nl/assets/particle-pack
+
+**Примечание про альфу:** у оригинального пака Kenney альфа везде 255 (частицы
+на чёрном фоне) — в Unity нужен **Additive** / **Alpha Blend** материал. Форк
+Calinou — как раз исправление этого: у него настоящая прямая альфа.
 
 ---
 
@@ -53,13 +81,20 @@ Itch.io отдаёт файлы только после «покупки» за 
 
 ## Рекомендации для экрана победы
 
-1. **Дождь конфетти:** `jellyfizh_Confetti.png` или Kenney `circle_*/star_*` + Particle System.
-2. **Вспышки салюта:** `pixel_fireworks_4colors_extracted/` или `Firework_spritesheet.png`.
-3. **UI-эффект «milestone»:** после ручной загрузки — Mochi Lab Starter (эффект `milestone` / confetti celebration).
+1. **Дождь конфетти:** `jellyfizh_Confetti.png` (уже используется).
+2. **Вспышки салюта:** `Firework_spritesheet.png` (уже используется) или
+   `pixel_fireworks_4colors_extracted/`.
+3. **UI-эффект «milestone»:** после ручной загрузки — Mochi Lab Starter.
 
 ## Импорт в Unity
 
-1. Скопировать выбранные PNG в `UnityProject/Assets/Sprites/` или `Assets/VFX/`.
+1. Скопировать выбранные PNG в `UnityProject/Assets/Sprites/lady_bug/` (кадры,
+   которые грузятся по имени в рантайме — в `Assets/Resources/`).
 2. Texture Type: **Sprite (2D and UI)** или **Default** для Particle System.
 3. Spritesheet → **Sprite Editor** → Slice (Grid By Cell / Automatic).
 4. Particle System → **Texture Sheet Animation** + материал с прозрачностью.
+
+⚠️ Если добавляете сюда что-то новое — **сразу записывайте автора, лицензию,
+URL и нужна ли атрибуция**. Именно из-за пропуска этого шага (`Firework` был
+записан как «см. страницу») происхождение пришлось потом восстанавливать по
+транскриптам.
