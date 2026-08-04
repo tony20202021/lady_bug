@@ -36,5 +36,6 @@
 **Tools → Rebuild Scene**. После правок только в `Assets/Scripts/*.cs` —
 Unity подхватывает сама; после `SceneSetup.cs` — повторить Rebuild Scene.
 
-**Отладочная цель забега:** сейчас **1 км** (`WinSequence.WinSegmentDistanceKm`);
-релиз — 100 км.
+**Цель забега:** **10 км** (`WinSequence.WinSegmentDistanceKm`) — столько же
+добавляет каждое «продолжение» после финиша. Для отладки кат-сцены победы
+ставится 1.

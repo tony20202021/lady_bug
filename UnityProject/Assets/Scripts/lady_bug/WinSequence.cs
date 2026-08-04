@@ -9,8 +9,9 @@ public class WinSequence : MonoBehaviour
     public static WinSequence Instance { get; private set; }
 
     // One knob for goal distance — first finish and each «continue» extension
-    // add the same amount. Set to 1 for debug, 10 for release.
-    public const float WinSegmentDistanceKm = 1f;
+    // add the same amount. 10 is the playable target; drop to 1 to reach the
+    // win cutscene quickly while testing it.
+    public const float WinSegmentDistanceKm = 10f;
 
     private float winDistanceKm;
 
