@@ -62,6 +62,8 @@ public static class SceneSetup
 
         Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
 
+        _generatedThisRun.Clear(); // paired with PruneGeneratedTextures() at the end
+
         CreateLight();
         CreateSpeedController();
         CreateGestureSensorSerial();
@@ -133,6 +135,9 @@ public static class SceneSetup
         // IntroSequence[] gameIntros = CreateAllIntroScreens();
         // CreateLoaderScreen(gameIntros);
         CreateScreenInfoLabel();
+
+        // After every generator has run, so the set of live textures is final.
+        PruneGeneratedTextures();
 
         System.IO.Directory.CreateDirectory("Assets/Scenes");
         string scenePath = "Assets/Scenes/Main.unity";
@@ -5866,6 +5871,130 @@ public static class SceneSetup
         return text;
     }
 
+    // NOT scratch — these PNGs are a committed build input. The scene stores
+    // only GUIDs pointing at them, so a clone without this folder renders every
+    // road surface, lane divider, HUD wedge, route diagram, arrowhead and
+    // placeholder as a blank white box. Commit it together with Main.unity.
+    const string GeneratedTextureDir = "Assets/Sprites/lady_bug/generated";
+
+    // Every procedurally drawn texture below MUST come back through here.
+    //
+    // Handing a bare `new Texture2D(...)` to a material or a RawImage leaves
+    // it with no asset backing it, so Unity has nowhere to put the pixels
+    // except inside whatever references it — the scene. That is how
+    // Main.unity reached 48 MB, of which 45 MB was raw RGBA serialized as
+    // hex text: a single 900x900 route diagram cost 6.18 MB despite being
+    // 98.6% transparent (11384 opaque pixels out of 810000). Written out as
+    // a PNG first, that same diagram is 12.7 KB and the scene stores nothing
+    // but a GUID — the whole set of 34 textures goes from 45 MB to ~115 KB.
+    // Same class of mistake as ApplyColor vs ApplyPersistentColor further
+    // down, just for textures instead of materials.
+    //
+    // The file is named by content hash, which buys two things: identical
+    // textures (8 identical no-photo placeholders, 9 identical arrowheads)
+    // collapse onto one asset, and a rebuild that changes nothing produces
+    // byte-identical filenames, so Rebuild Scene stays free of git churn.
+    static Texture2D SaveGeneratedTexture(Texture2D tex, string prefix, TextureWrapMode wrap)
+    {
+        byte[] png = tex.EncodeToPNG();
+        Object.DestroyImmediate(tex);
+
+        string hash;
+        using (var md5 = System.Security.Cryptography.MD5.Create())
+            hash = System.BitConverter.ToString(md5.ComputeHash(png)).Replace("-", "").Substring(0, 8).ToLowerInvariant();
+
+        System.IO.Directory.CreateDirectory(GeneratedTextureDir);
+        string path = GeneratedTextureDir + "/" + prefix + "_" + hash + ".png";
+        _generatedThisRun.Add(path);
+
+        // Identical content -> identical name -> nothing to write. Skipping the
+        // write is what keeps the GUID (and the git diff) stable across rebuilds.
+        if (!System.IO.File.Exists(path))
+        {
+            System.IO.File.WriteAllBytes(path, png);
+            AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceSynchronousImport);
+        }
+
+        var importer = (TextureImporter)AssetImporter.GetAtPath(path);
+        if (importer == null)
+        {
+            Debug.LogError("SaveGeneratedTexture: не удалось импортировать " + path);
+            return null;
+        }
+
+        // Checked every run, not just on first write. The import above lands
+        // with Unity's DEFAULTS first and is corrected here — so if that
+        // correction ever fails to stick (crash, aborted build, a .meta lost
+        // or regenerated on another machine), the PNG would otherwise keep
+        // the defaults forever, since the file now exists and the write is
+        // skipped. The costly default is npotScale: Unity rescales
+        // non-power-of-two textures to the nearest power of two, and most of
+        // these are 900x900 / 512x727 / 400x569. A squashed 512x727 -> 512x512
+        // wedge silently feeds a wrong height/width ratio into
+        // PositionWedgePanel and skews the whole HUD panel with no error.
+        bool dirty =
+            importer.npotScale != TextureImporterNPOTScale.None ||
+            importer.mipmapEnabled ||
+            importer.textureCompression != TextureImporterCompression.Uncompressed || // was RGBA32; DXT would band the flat fills
+            importer.maxTextureSize != 2048 ||
+            importer.filterMode != FilterMode.Bilinear ||
+            importer.wrapMode != wrap ||
+            !importer.alphaIsTransparency;
+
+        if (dirty)
+        {
+            importer.npotScale = TextureImporterNPOTScale.None;
+            importer.mipmapEnabled = false;
+            importer.textureCompression = TextureImporterCompression.Uncompressed;
+            importer.maxTextureSize = 2048;
+            importer.filterMode = FilterMode.Bilinear;
+            importer.wrapMode = wrap;
+            importer.alphaIsTransparency = true;
+            importer.SaveAndReimport();
+        }
+
+        var loaded = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+        if (loaded == null)
+            Debug.LogError("SaveGeneratedTexture: ассет не загрузился после импорта — " + path);
+        return loaded;
+    }
+
+    // Paths written by the current Rebuild Scene run — see PruneGeneratedTextures.
+    static readonly System.Collections.Generic.HashSet<string> _generatedThisRun =
+        new System.Collections.Generic.HashSet<string>();
+
+    // Content-hashed names never collide, but a changed diagram abandons its
+    // old file, so the folder would silently accumulate orphans.
+    //
+    // Deliberately a prune at the END rather than a wipe at the start: a file
+    // whose content did not change keeps its name, therefore its .meta,
+    // therefore its GUID. Wiping the folder up front would hand every texture
+    // a brand-new GUID on every rebuild, which both breaks the references
+    // inside any material/prefab asset that outlived the rebuild and turns a
+    // no-op Rebuild Scene into a churning diff. This way a rebuild that
+    // changes nothing writes nothing.
+    //
+    // Only safe to call from BuildScene, which regenerates EVERY texture.
+    // Rebuild Road Geometry deliberately does NOT prune: it rebuilds only the
+    // road, so _generatedThisRun would hold just the asphalt/dash textures and
+    // the prune would delete the HUD wedges, route diagrams and smileys the
+    // still-loaded scene is using. Cost of not pruning there: editing
+    // road-texture code and running only Rebuild Road Geometry leaves the
+    // superseded PNGs behind until the next full Rebuild Scene sweeps them.
+    static void PruneGeneratedTextures()
+    {
+        if (!AssetDatabase.IsValidFolder(GeneratedTextureDir))
+            return;
+
+        string[] guids = AssetDatabase.FindAssets("t:Texture2D", new[] { GeneratedTextureDir });
+        foreach (string guid in guids)
+        {
+            string path = AssetDatabase.GUIDToAssetPath(guid);
+            if (!_generatedThisRun.Contains(path))
+                AssetDatabase.DeleteAsset(path);
+        }
+    }
+
     // Tileable asphalt grain — per-pixel brightness jitter around the base
     // road-gray so the surface reads as slightly uneven instead of a flat
     // block of color. Fixed seed so re-running Rebuild Scene is deterministic.
@@ -5873,7 +6002,7 @@ public static class SceneSetup
     {
         const int size = 64;
         var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
-        tex.wrapMode = TextureWrapMode.Repeat;
+        tex.wrapMode = TextureWrapMode.Repeat; // carried onto the importer by SaveGeneratedTexture
         tex.filterMode = FilterMode.Bilinear;
 
         Color baseColor = new Color(0.25f, 0.25f, 0.25f);
@@ -5892,7 +6021,7 @@ public static class SceneSetup
         }
 
         tex.Apply();
-        return tex;
+        return SaveGeneratedTexture(tex, "RoadGrain", TextureWrapMode.Repeat);
     }
 
     // A single 90°-wide corner fan — apex at the left edge (opensRight) or
@@ -5990,7 +6119,7 @@ public static class SceneSetup
         }
 
         tex.Apply();
-        return tex;
+        return SaveGeneratedTexture(tex, "Wedge", TextureWrapMode.Clamp);
     }
 
     // Positions/rotates a HUD fan panel's wedge background so its apex
@@ -6190,7 +6319,7 @@ public static class SceneSetup
         }
 
         tex.Apply();
-        return tex;
+        return SaveGeneratedTexture(tex, "Arrowhead", TextureWrapMode.Clamp);
     }
 
     static Texture2D CreateDashTexture(int seedOffset = 0)
@@ -6230,7 +6359,7 @@ public static class SceneSetup
         DrawDashBand(tex, 2 * bandHeight, width, bandHeight, seed: 313 + seedOffset, edgeJitter: 2, chipChance: 0.08, wavy: true);
 
         tex.Apply();
-        return tex;
+        return SaveGeneratedTexture(tex, "LaneDash", TextureWrapMode.Repeat);
     }
 
     // One dash+gap cycle, written into tex at row yOffset..yOffset+height.
@@ -6371,7 +6500,7 @@ public static class SceneSetup
 
         tex.SetPixels(pixels);
         tex.Apply();
-        return tex;
+        return SaveGeneratedTexture(tex, "RouteDiagram", TextureWrapMode.Clamp);
     }
 
     static void StampDashSegment(Color[] pixels, int texSize, Vector2 pxA, Vector2 pxB, float halfThicknessPx)
@@ -6435,7 +6564,12 @@ public static class SceneSetup
         // feather stayed full width. Sliced keeps the border regions at
         // their real pixel size regardless of the target rect's aspect.
         float borderPx = feather;
-        return Sprite.Create(tex, new Rect(0f, 0f, size, size), new Vector2(0.5f, 0.5f), 100f, 0,
+        // The Sprite itself stays an in-scene object — that part is cheap,
+        // it is just a rect plus a reference. What must NOT stay in-scene is
+        // the texture behind it, hence the round-trip through
+        // SaveGeneratedTexture before Sprite.Create sees it.
+        Texture2D saved = SaveGeneratedTexture(tex, "SoftRect", TextureWrapMode.Clamp);
+        return Sprite.Create(saved, new Rect(0f, 0f, size, size), new Vector2(0.5f, 0.5f), 100f, 0,
             SpriteMeshType.FullRect, new Vector4(borderPx, borderPx, borderPx, borderPx));
     }
 
@@ -6485,7 +6619,7 @@ public static class SceneSetup
 
         tex.SetPixels(pixels);
         tex.Apply();
-        return tex;
+        return SaveGeneratedTexture(tex, "Smiley", TextureWrapMode.Clamp);
     }
 
     static void StampFilledCircle(Color[] pixels, int texSize, Vector2 center, float radius, Color color)
@@ -6525,7 +6659,7 @@ public static class SceneSetup
 
         tex.SetPixels(pixels);
         tex.Apply();
-        return tex;
+        return SaveGeneratedTexture(tex, "NoPhoto", TextureWrapMode.Clamp);
     }
 
     static void StampSolidLine(Color[] pixels, int texSize, Vector2 pxA, Vector2 pxB, float halfThicknessPx, Color color)
