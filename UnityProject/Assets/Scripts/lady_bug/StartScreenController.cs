@@ -337,6 +337,9 @@ public class StartScreenController : MonoBehaviour
             RefreshControllerDetection();
         }
 
+        // Must precede every MenuSensor*Held read this frame — see its own comment.
+        UpdateMenuSensorFlapState();
+
         bool left = Input.GetKeyDown(KeyCode.A) || Input.GetKeyDown(KeyCode.J);
         bool right = Input.GetKeyDown(KeyCode.D) || Input.GetKeyDown(KeyCode.L);
         bool up = Input.GetKeyDown(KeyCode.W) || Input.GetKeyDown(KeyCode.I);
@@ -1045,10 +1048,26 @@ public class StartScreenController : MonoBehaviour
         _prevJoystickUpHeld = held;
     }
 
+    // A flap needs two 55 mm swings inside 0.9 s before HandFlapTracker calls
+    // it a flap, so the FIRST downstroke lands both hands in the Down zone
+    // while _menuSensorFlapping is still false. On the upper rows a down is an
+    // instant edge, so that single frame was enough to walk the cursor down at
+    // the start of every jump gesture. Requiring the duck to survive longer
+    // than a downstroke closes the window the tracker cannot cover.
+    private const float MenuSensorDuckMinHold = 0.25f;
+    private float _menuSensorDuckHeldFor;
+
     private void UpdateMenuDownHold(ref bool downEdge)
     {
+        if (MenuSensorDuckHeld())
+            _menuSensorDuckHeldFor += Time.deltaTime;
+        else
+            _menuSensorDuckHeldFor = 0f;
+
+        // Keyboard and joystick are unambiguous — no flap can be mistaken for
+        // them, so they stay instant.
         bool held = Input.GetKey(KeyCode.S) || Input.GetKey(KeyCode.K)
-            || MenuSensorDuckHeld()
+            || _menuSensorDuckHeldFor >= MenuSensorDuckMinHold
             || IsJoystickDownHeld(joystickRight) || IsJoystickDownHeld(joystickLeft);
 
         // Upper rows have nothing to confirm — move down on the first frame
@@ -1338,10 +1357,40 @@ public class StartScreenController : MonoBehaviour
         return true;
     }
 
+    // A flap drives both hands through the Down zone on every downstroke, so
+    // the raw-distance reads below would see duck (and flickering leans) all
+    // the way through a jump gesture. GestureInput already guards against
+    // exactly this — while flapping it force-clears DuckHeld/LeanHeld — but
+    // the menu bypasses GestureInput and reads the board directly, so it has
+    // to make the same guard itself.
+    //
+    // Symptom this fixes: on the sensors the HUD lit up ПРЫЖОК (that path goes
+    // through GestureInput and was clean) while the menu refused to move up —
+    // line "if (MenuSensorDuckHeld() ...) up = false;" cancelled it every
+    // frame, and UpdateMenuDownHold read the same false duck as a down-tap, so
+    // a flap actually walked the cursor DOWN until it hit the last row.
+    private readonly GestureInput.HandFlapTracker _menuLeftFlapTracker = new GestureInput.HandFlapTracker();
+    private readonly GestureInput.HandFlapTracker _menuRightFlapTracker = new GestureInput.HandFlapTracker();
+    private bool _menuSensorFlapping;
+
+    // Observe() mutates the trackers, so this must run exactly once per frame,
+    // before anything reads MenuSensorDuckHeld/LeanHeld.
+    private void UpdateMenuSensorFlapState()
+    {
+        if (!TryReadCombinedBoardHandMm(out int leftMm, out int rightMm))
+        {
+            _menuSensorFlapping = false;
+            return;
+        }
+
+        _menuSensorFlapping = GestureInput.BothHandsFlapping(
+            _menuLeftFlapTracker, _menuRightFlapTracker, leftMm, rightMm);
+    }
+
     private bool MenuSensorDuckHeld()
     {
         if (TryReadCombinedBoardHandMm(out int leftMm, out int rightMm))
-            return GestureInput.DuckHeldFromDistances(leftMm, rightMm);
+            return !_menuSensorFlapping && GestureInput.DuckHeldFromDistances(leftMm, rightMm);
 
         return IsDuckHeld(gestureLeft) || IsDuckHeld(gestureRight);
     }
@@ -1349,7 +1398,7 @@ public class StartScreenController : MonoBehaviour
     private bool MenuSensorLeanLeftHeld()
     {
         if (TryReadCombinedBoardHandMm(out int leftMm, out int rightMm))
-            return GestureInput.LeanLeftHeldFromDistances(leftMm, rightMm);
+            return !_menuSensorFlapping && GestureInput.LeanLeftHeldFromDistances(leftMm, rightMm);
 
         return IsLeanLeftHeld(gestureLeft) || IsLeanLeftHeld(gestureRight);
     }
@@ -1357,7 +1406,7 @@ public class StartScreenController : MonoBehaviour
     private bool MenuSensorLeanRightHeld()
     {
         if (TryReadCombinedBoardHandMm(out int leftMm, out int rightMm))
-            return GestureInput.LeanRightHeldFromDistances(leftMm, rightMm);
+            return !_menuSensorFlapping && GestureInput.LeanRightHeldFromDistances(leftMm, rightMm);
 
         return IsLeanRightHeld(gestureLeft) || IsLeanRightHeld(gestureRight);
     }
@@ -1367,8 +1416,11 @@ public class StartScreenController : MonoBehaviour
         if (!TryReadCombinedBoardHandMm(out int leftMm, out int rightMm))
             return;
 
-        bool leanLeftHeld = GestureInput.LeanLeftHeldFromDistances(leftMm, rightMm);
-        bool leanRightHeld = GestureInput.LeanRightHeldFromDistances(leftMm, rightMm);
+        // Same flap guard as the helpers above: mid-flap the two hands are
+        // rarely level, so without this every jump gesture also fires a lean
+        // edge and the cursor jumps sideways.
+        bool leanLeftHeld = !_menuSensorFlapping && GestureInput.LeanLeftHeldFromDistances(leftMm, rightMm);
+        bool leanRightHeld = !_menuSensorFlapping && GestureInput.LeanRightHeldFromDistances(leftMm, rightMm);
 
         if (leanLeftHeld && !_menuCombinedPrevLeanLeftHeld)
             left = true;
