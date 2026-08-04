@@ -1264,9 +1264,20 @@ public class StartScreenController : MonoBehaviour
         }
     }
 
+    // Clamps, deliberately — no wrap-around. The list is 3 short rows fully
+    // visible at once, so wrapping reads as "the cursor jumped somewhere
+    // random" rather than as a convenience: pressing down on the last row
+    // used to land you back on the first one. It bit "down" specifically
+    // because a short down-tap on the start/training row still counts as a
+    // nav edge (see UpdateMenuDownHold — it has to, so an aborted
+    // hold-to-confirm doesn't get stuck), and that edge then wrapped 2 -> 0.
     private void MoveRow(int delta)
     {
-        _row = (_row + delta + RowCount) % RowCount;
+        int next = Mathf.Clamp(_row + delta, 0, RowCount - 1);
+        if (next == _row)
+            return;
+
+        _row = next;
         UpdateVisuals();
     }
 
