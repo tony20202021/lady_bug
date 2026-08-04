@@ -1514,7 +1514,7 @@ public class StartScreenController : MonoBehaviour
 
         menuHelpText.fontSize = 20;
         menuHelpText.fontStyle = FontStyle.Bold;
-        menuHelpText.alignment = TextAnchor.LowerLeft;
+        menuHelpText.alignment = TextAnchor.LowerRight; // bottom-right; swapped with the controller indicator
         menuHelpText.horizontalOverflow = HorizontalWrapMode.Wrap;
         menuHelpText.verticalOverflow = VerticalWrapMode.Overflow;
         menuHelpText.color = new Color(0.9f, 0.9f, 0.9f);
@@ -1563,15 +1563,17 @@ public class StartScreenController : MonoBehaviour
     {
         text.fontSize = 20;
         text.fontStyle = FontStyle.Bold;
-        text.alignment = TextAnchor.LowerRight;
+        // Bottom-LEFT — swapped with MenuHelpText, which took the right corner.
+        // Keep in step with SceneSetup's own build-time placement.
+        text.alignment = TextAnchor.LowerLeft;
         text.horizontalOverflow = HorizontalWrapMode.Overflow;
         text.color = new Color(0.9f, 0.9f, 0.9f);
         RectTransform rt = text.GetComponent<RectTransform>();
-        rt.anchorMin = new Vector2(1f, 0f);
-        rt.anchorMax = new Vector2(1f, 0f);
-        rt.pivot = new Vector2(1f, 0f);
+        rt.anchorMin = new Vector2(0f, 0f);
+        rt.anchorMax = new Vector2(0f, 0f);
+        rt.pivot = new Vector2(0f, 0f);
         rt.sizeDelta = new Vector2(680f, 80f);
-        rt.anchoredPosition = new Vector2(-30f, 30f);
+        rt.anchoredPosition = new Vector2(30f, 30f);
     }
 
     private void ApplyControllerStatusLayout() => ApplyControllerStatusLayout(controllerStatusText);

@@ -3331,17 +3331,21 @@ public static class SceneSetup
         controllerStatus.font = GameFont;
         controllerStatus.fontSize = 20;
         controllerStatus.fontStyle = FontStyle.Bold;
-        controllerStatus.alignment = TextAnchor.LowerRight;
+        // Bottom-LEFT — swapped with MenuHelpText, which now takes the right
+        // corner. Runtime layout must agree: StartScreenController's own
+        // ApplyControllerStatusLayout rewrites this whole rect every time it
+        // refreshes, so changing it only here would snap straight back.
+        controllerStatus.alignment = TextAnchor.LowerLeft;
         controllerStatus.horizontalOverflow = HorizontalWrapMode.Overflow;
         controllerStatus.color = new Color(0.9f, 0.9f, 0.9f);
         controllerStatus.text = "КОНТРОЛЛЕР...";
         controllerStatusGo.AddComponent<Outline>().effectColor = Color.black;
         RectTransform controllerStatusRt = controllerStatus.GetComponent<RectTransform>();
-        controllerStatusRt.anchorMin = new Vector2(1f, 0f);
-        controllerStatusRt.anchorMax = new Vector2(1f, 0f);
-        controllerStatusRt.pivot = new Vector2(1f, 0f);
+        controllerStatusRt.anchorMin = new Vector2(0f, 0f);
+        controllerStatusRt.anchorMax = new Vector2(0f, 0f);
+        controllerStatusRt.pivot = new Vector2(0f, 0f);
         controllerStatusRt.sizeDelta = new Vector2(680f, 80f);
-        controllerStatusRt.anchoredPosition = new Vector2(-30f, 30f);
+        controllerStatusRt.anchoredPosition = new Vector2(30f, 30f);
 
         // Large 5-4-3-2-1 while holding down to confirm СТАРТ/ТРЕНИРОВКА.
         var menuConfirmCountdownGo = new GameObject("MenuConfirmCountdown");
@@ -3504,7 +3508,8 @@ public static class SceneSetup
         menuHelp.font = GameFont;
         menuHelp.fontSize = 20;
         menuHelp.fontStyle = FontStyle.Bold;
-        menuHelp.alignment = TextAnchor.LowerLeft;
+        // Bottom-RIGHT — swapped with ControllerStatusText above.
+        menuHelp.alignment = TextAnchor.LowerRight;
         menuHelp.horizontalOverflow = HorizontalWrapMode.Wrap;
         menuHelp.verticalOverflow = VerticalWrapMode.Overflow;
         menuHelp.color = new Color(0.9f, 0.9f, 0.9f);
@@ -3520,11 +3525,11 @@ public static class SceneSetup
             + "И ДЕРЖАТЬ ВНИЗ 5 СЕК";
         menuHelpGo.AddComponent<Outline>().effectColor = Color.black;
         RectTransform menuHelpRt = menuHelp.GetComponent<RectTransform>();
-        menuHelpRt.anchorMin = new Vector2(0f, 0f);
-        menuHelpRt.anchorMax = new Vector2(0f, 0f);
-        menuHelpRt.pivot = new Vector2(0f, 0f);
+        menuHelpRt.anchorMin = new Vector2(1f, 0f);
+        menuHelpRt.anchorMax = new Vector2(1f, 0f);
+        menuHelpRt.pivot = new Vector2(1f, 0f);
         menuHelpRt.sizeDelta = new Vector2(450f, 190f); // verticalOverflow=Overflow handles the rest if 6 short lines run a touch past this
-        menuHelpRt.anchoredPosition = new Vector2(30f, 30f);
+        menuHelpRt.anchoredPosition = new Vector2(-30f, 30f);
 
         // Only the first page starts visible — StartScreenController swaps
         // active pages at runtime (see UpdateCarousel).
