@@ -3061,6 +3061,10 @@ public static class SceneSetup
         goalDistanceSo.FindProperty("label").objectReferenceValue = goalPage.rowTexts[0];
         goalDistanceSo.ApplyModifiedPropertiesWithoutUndo();
 
+        // Same idea as goalPage above — built with placeholder copy, then
+        // wired so the runtime can correct it (keyboard vs real controller).
+        var menuSelectionPage = CreateMenuSelectionPage(carouselRt);
+
         var carouselPages = new System.Collections.Generic.List<GameObject>
         {
             // СУТЬ ИГРЫ first — page[0] is what's actually visible the
@@ -3076,7 +3080,7 @@ public static class SceneSetup
 
             goalPage.page,
 
-            CreateMenuSelectionPage(carouselRt),
+            menuSelectionPage.page,
 
             CreateObjectGridPage(carouselRt, "ХОРОШИЕ ОБЪЕКТЫ", new Color(0.4f, 1f, 0.5f), GoodObjectNames),
             CreateObjectGridPage(carouselRt, "ПРЕПЯТСТВИЯ", new Color(1f, 0.4f, 0.3f), BadObjectNames),
@@ -3550,6 +3554,8 @@ public static class SceneSetup
         so.FindProperty("lanesRowBg").objectReferenceValue = lanesRowBg;
         so.FindProperty("controllerStatusText").objectReferenceValue = controllerStatus;
         so.FindProperty("menuHelpText").objectReferenceValue = menuHelp;
+        so.FindProperty("menuSelectionPlayer1Row").objectReferenceValue = menuSelectionPage.player1Row;
+        so.FindProperty("menuSelectionPlayer2Row").objectReferenceValue = menuSelectionPage.player2Row;
         so.FindProperty("menuConfirmCountdownText").objectReferenceValue = menuConfirmCountdown;
         so.FindProperty("notImplementedText").objectReferenceValue = notImplemented;
         so.FindProperty("startBg").objectReferenceValue = startBtn.GetComponent<Image>();
@@ -4173,7 +4179,11 @@ public static class SceneSetup
     // shown once in the upfront carousel after СУТЬ/ЦЕЛЬ so players read it
     // before the object/controls pages; the bottom-left hint stays too.
     // Checklist rows + ИГРОК 1/2 labels mirror how the live menu maps keys.
-    static GameObject CreateMenuSelectionPage(Transform parent)
+    // The two ИГРОК rows are handed back so StartScreenController can rewrite
+    // them once controller detection settles — this page is built here with
+    // the keyboard mapping, but on the real cabinet it has to name the
+    // sensors and the joystick instead (see UpdateMenuHelpText).
+    static (GameObject page, Text player1Row, Text player2Row) CreateMenuSelectionPage(Transform parent)
     {
         GameObject page = CreateFillPage(parent, "Page_MenuSelection");
 
@@ -4181,14 +4191,14 @@ public static class SceneSetup
 
         const int sectionFontSize = 40;
         CreateControlsSubLabel(page.transform, new Vector2(0f, 150f), "ВЫБОР:", sectionFontSize, 420f);
-        CreateChecklistRow(page.transform, 75f, "ИГРОК 1: WASD");
-        CreateChecklistRow(page.transform, 10f, "ИГРОК 2: IJKL");
+        Text player1Row = CreateChecklistRow(page.transform, 75f, "ИГРОК 1: WASD");
+        Text player2Row = CreateChecklistRow(page.transform, 10f, "ИГРОК 2: IJKL");
 
         CreateControlsSubLabel(page.transform, new Vector2(0f, -60f), "НАЧАЛО:", sectionFontSize, 420f);
         CreateChecklistRow(page.transform, -125f, "ВЫБРАТЬ СТАРТ ИЛИ ТРЕНИРОВКА");
         CreateChecklistRow(page.transform, -190f, "И ДЕРЖАТЬ ВНИЗ 5 СЕК");
 
-        return page;
+        return (page, player1Row, player2Row);
     }
 
     // УПРАВЛЕНИЕ: keeps the original 2-line keyboard mapping (top/bottom,

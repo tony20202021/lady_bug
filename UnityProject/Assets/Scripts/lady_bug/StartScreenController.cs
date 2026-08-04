@@ -35,6 +35,14 @@ public class StartScreenController : MonoBehaviour
 
     [SerializeField] private Text controllerStatusText;
     [SerializeField] private Text menuHelpText;
+
+    // The two per-player rows on the ВЫБОР В МЕНЮ carousel page. Baked with
+    // the keyboard mapping by SceneSetup (that page is built long before any
+    // board is polled) and rewritten here once a controller is detected —
+    // otherwise the upfront instructions tell a player sitting at the real
+    // cabinet to press keys that are not in front of them.
+    [SerializeField] private Text menuSelectionPlayer1Row;
+    [SerializeField] private Text menuSelectionPlayer2Row;
     [SerializeField] private Text menuConfirmCountdownText;
 
     [SerializeField] private Image startBg;
@@ -172,6 +180,14 @@ public class StartScreenController : MonoBehaviour
         "ВЫБОР:\n"
         + "WASD · IJKL"
         + MenuHelpStartBlock;
+
+    // Rows on the ВЫБОР В МЕНЮ carousel page. Hardware wording matches the
+    // УПРАВЛЕНИЕ page built by SceneSetup (ИГРОК 1 — ДАТЧИКИ, ИГРОК 2 —
+    // ДЖОЙСТИК), so the two instruction screens agree with each other.
+    private const string MenuSelectionPlayer1Keyboard = "ИГРОК 1: WASD";
+    private const string MenuSelectionPlayer2Keyboard = "ИГРОК 2: IJKL";
+    private const string MenuSelectionPlayer1Hardware = "ИГРОК 1: ДАТЧИКИ РУК";
+    private const string MenuSelectionPlayer2Hardware = "ИГРОК 2: ДЖОЙСТИК";
 
     private int _lastCarouselPage = -1;
     private float _pageDwellElapsed;
@@ -1383,10 +1399,18 @@ public class StartScreenController : MonoBehaviour
 
     private void UpdateMenuHelpText()
     {
-        if (menuHelpText == null)
-            return;
+        if (menuHelpText != null)
+            menuHelpText.text = _useHardwareInput ? MenuHelpHardware : MenuHelpKeyboard;
 
-        menuHelpText.text = _useHardwareInput ? MenuHelpHardware : MenuHelpKeyboard;
+        // Same switch on the upfront carousel page, so the instructions a
+        // player reads before the menu match the hint under the menu itself.
+        if (menuSelectionPlayer1Row != null)
+            menuSelectionPlayer1Row.text = _useHardwareInput
+                ? MenuSelectionPlayer1Hardware : MenuSelectionPlayer1Keyboard;
+
+        if (menuSelectionPlayer2Row != null)
+            menuSelectionPlayer2Row.text = _useHardwareInput
+                ? MenuSelectionPlayer2Hardware : MenuSelectionPlayer2Keyboard;
     }
 
     private static bool IsHardwareConnected()
