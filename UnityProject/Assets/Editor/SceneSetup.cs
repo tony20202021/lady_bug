@@ -2720,7 +2720,12 @@ public static class SceneSetup
         scaler.matchWidthOrHeight = 1f;
         canvasGo.AddComponent<GraphicRaycaster>();
 
-        const float crossY = 20f + 24f;
+        // Raised to clear MenuHelpText, which moved into this same bottom-right
+        // corner: that box is 450x190 anchored at (-30, 30), so it reaches up to
+        // y=220 (and overflows further upward). At the old crossY the cross sat
+        // at y 119..269 and the two overlapped — invisible until the arrows
+        // started rendering at all again, which is why it was never noticed.
+        const float crossY = 20f + 24f + 120f;
         const float crossSize = 150f;
         const float armOffset = 46f;
         var crossGo = new GameObject("JoystickCross");
@@ -2764,6 +2769,15 @@ public static class SceneSetup
         text.fontSize = 64;
         text.fontStyle = FontStyle.Bold;
         text.alignment = TextAnchor.MiddleCenter;
+        // 64pt in a 56x56 box. Unity's default Truncate wrap mode does not
+        // crop a too-tall line, it discards it — the arrows were built,
+        // active, correctly coloured and positioned, and drew absolutely
+        // nothing. Exactly the trap already documented on CreateChecklistRow
+        // ("once silently blanked a reveal line here"), just never applied
+        // here. JoystickIndicator.StyleArrow re-asserts the same font size
+        // every session, so it sets these flags too.
+        text.horizontalOverflow = HorizontalWrapMode.Overflow;
+        text.verticalOverflow = VerticalWrapMode.Overflow;
         text.color = new Color(0.55f, 0.55f, 0.55f);
         text.text = glyph;
         go.AddComponent<Outline>().effectColor = Color.black;

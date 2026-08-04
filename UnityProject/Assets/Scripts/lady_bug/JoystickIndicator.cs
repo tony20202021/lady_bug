@@ -124,6 +124,8 @@ public class JoystickIndicator : MonoBehaviour
                 centerDot.font = font;
             centerDot.text = "+";
             centerDot.fontSize = 52;
+            centerDot.horizontalOverflow = HorizontalWrapMode.Overflow;
+            centerDot.verticalOverflow = VerticalWrapMode.Overflow; // 52pt in the same 56-tall box — see StyleArrow
             centerDot.gameObject.SetActive(true);
             centerDot.color = IdleColor;
         }
@@ -139,6 +141,13 @@ public class JoystickIndicator : MonoBehaviour
         arrow.text = glyph;
         arrow.fontSize = fontSize;
         arrow.fontStyle = FontStyle.Bold;
+        // The glyph box is 56x56 while this font is 64pt — under Unity's
+        // default Truncate mode a line taller than its box is not cropped,
+        // it is thrown away, and the arrow renders nothing at all. Set here
+        // as well as in SceneSetup so an already-saved scene repairs itself
+        // without needing Rebuild Scene.
+        arrow.horizontalOverflow = HorizontalWrapMode.Overflow;
+        arrow.verticalOverflow = VerticalWrapMode.Overflow;
         arrow.gameObject.SetActive(true);
         arrow.color = IdleColor;
     }
