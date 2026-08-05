@@ -5444,6 +5444,8 @@ public static class SceneSetup
     // to be generated, which left e.g. cat paws falling for Сизиф and question
     // marks for Завод; reordered per feedback so each set lands on its own game.
     // fillClip is the looping bed that plays while the objects rain down,
+    // trimmed and crossfaded to loop without a seam (WAV, not MP3: the codec
+    // adds its own padding, which is audible as a hitch every time round).
     // growing louder as the screen fills — every slot now has its own instead
     // of only БК having one and the rest filling in silence. The cat slot
     // reuses the meow the game already ships for a Cat collision rather than
@@ -5455,19 +5457,19 @@ public static class SceneSetup
             "Assets/Audio/lady_bug/Buzz.wav", true),
         // 2 - Викторина про жизнь — тиканье часов
         ("IntroCanvasQuestionMark", "Assets/Sprites/loader/", new[] { "QuestionMark1.png", "QuestionMark2.png", "QuestionMark3.png" },
-            "Assets/Audio/loader/IntroClock.mp3", false),
+            "Assets/Audio/loader/IntroClock.wav", false),
         // 3 - Медитация в спешке — индийская флейта
         ("IntroCanvasMeditation", "Assets/Sprites/loader/", new[] { "Meditation1.png", "Meditation2.png", "Meditation3.png" },
-            "Assets/Audio/loader/IntroIndianFlute.mp3", false),
+            "Assets/Audio/loader/IntroIndianFlute.wav", false),
         // 4 - Бесконечный Сизиф — камни
         ("IntroCanvasStone", "Assets/Sprites/loader/", new[] { "Stone1.png", "Stone2.png", "Stone3.png" },
-            "Assets/Audio/loader/IntroStones.mp3", false),
+            "Assets/Audio/loader/IntroStones.wav", false),
         // 5 - Завод — технологический гул
         ("IntroCanvasGear", "Assets/Sprites/loader/", new[] { "Gear1.png", "Gear2.png", "Gear3.png" },
-            "Assets/Audio/loader/IntroFactoryHum.mp3", false),
+            "Assets/Audio/loader/IntroFactoryHum.wav", false),
         // 6 - Таблетка в космосе — космический эмбиент
         ("IntroCanvasPill", "Assets/Sprites/loader/", new[] { "Pill1.png", "Pill2.png", "Pill3.png" },
-            "Assets/Audio/loader/IntroSpaceDrone.mp3", false),
+            "Assets/Audio/loader/IntroSpaceDrone.wav", false),
         // 7 - Игра про кота — мяуканье
         ("IntroCanvasCatPaw", "Assets/Sprites/loader/", new[] { "CatPaw1.png", "CatPaw2.png", "CatPaw3.png" },
             "Assets/Audio/lady_bug/BadCat.mp3", false),

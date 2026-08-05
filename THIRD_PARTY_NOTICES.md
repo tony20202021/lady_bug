@@ -47,18 +47,21 @@
 
 | Файл | Mixkit id | Название | Слот |
 |---|---|---|---|
-| `IntroClock.mp3` | 1063 | Fast wall clock ticking | 2 — Викторина про жизнь |
-| `IntroIndianFlute.mp3` | 2312 | Possitive indian flute [sic] | 3 — Медитация в спешке |
-| `IntroStones.mp3` | 388 | Falling bricks | 4 — Бесконечный Сизиф |
-| `IntroFactoryHum.mp3` | 2133 | Technological futuristic hum | 5 — Завод |
-| `IntroSpaceDrone.mp3` | 2507 | Futuristic Sci Fi computer ambience | 6 — Таблетка в космосе |
+| `IntroClock.wav` | 1063 | Fast wall clock ticking | 2 — Викторина про жизнь |
+| `IntroIndianFlute.wav` | 2312 | Possitive indian flute [sic] | 3 — Медитация в спешке |
+| `IntroStones.wav` | 388 | Falling bricks | 4 — Бесконечный Сизиф |
+| `IntroFactoryHum.wav` | 2133 | Technological futuristic hum | 5 — Завод |
+| `IntroSpaceDrone.wav` | 2510 | Cinematic suspense ambience | 6 — Таблетка в космосе |
 
 Слот 1 (БК) использует `Buzz.wav`, слот 7 (Игра про кота) — уже имеющийся
 `BadCat.mp3`; новых файлов под них не заводилось.
 
-Все файлы — превью с mixkit как есть, кроме `IntroSpaceDrone.mp3`: обрезан
-с 23.5 с до 10 с (`ffmpeg -t 10 -c copy`), клип зацикливается и полная длина
-весила 758 КБ против 320 КБ.
+**Все пять переработаны в бесшовные петли** (исходники — превью с mixkit):
+срезана тишина по краям, хвост подмешан в начало кроссфейдом, результат
+сохранён в **WAV, а не MP3** — MP3 добавляет собственный отступ от кодека,
+слышимый как заминка на каждом обороте. У `IntroClock` длина подобрана кратно
+интервалу тиков (0.294 с), чтобы ритм не сбивался на стыке. `IntroSpaceDrone`
+вырезан из плотного участка 12–20 с и нормализован — исходник тихий.
 
 ### ✅ `GearShift.wav` — не сторонний файл, синтезирован с нуля
 
