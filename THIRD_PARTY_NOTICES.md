@@ -49,14 +49,16 @@
 |---|---|---|---|
 | `IntroClock.mp3` | 1063 | Fast wall clock ticking | 2 — Викторина про жизнь |
 | `IntroIndianFlute.mp3` | 2312 | Possitive indian flute [sic] | 3 — Медитация в спешке |
-| `IntroStones.mp3` | 400 | Stones and rocks falling | 4 — Бесконечный Сизиф |
+| `IntroStones.mp3` | 388 | Falling bricks | 4 — Бесконечный Сизиф |
 | `IntroFactoryHum.mp3` | 2133 | Technological futuristic hum | 5 — Завод |
-| `IntroSpaceDrone.mp3` | 2747 | Spaceship drone travel noise | 6 — Таблетка в космосе |
+| `IntroSpaceDrone.mp3` | 2507 | Futuristic Sci Fi computer ambience | 6 — Таблетка в космосе |
 
 Слот 1 (БК) использует `Buzz.wav`, слот 7 (Игра про кота) — уже имеющийся
 `BadCat.mp3`; новых файлов под них не заводилось.
 
-Все файлы — превью с mixkit как есть, без обработки.
+Все файлы — превью с mixkit как есть, кроме `IntroSpaceDrone.mp3`: обрезан
+с 23.5 с до 10 с (`ffmpeg -t 10 -c copy`), клип зацикливается и полная длина
+весила 758 КБ против 320 КБ.
 
 ### ✅ `GearShift.wav` — не сторонний файл, синтезирован с нуля
 
