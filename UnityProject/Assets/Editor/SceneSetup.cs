@@ -5537,42 +5537,29 @@ public static class SceneSetup
             }
         }
 
-        // Digit/word overlay — real generated graffiti artwork
-        // (asset_gen/gen_asset.sh, see Assets/Sprites/CountdownGraffiti*.png),
-        // transparent cutouts so it draws directly over the finished flower
-        // pile underneath (later sibling, no separate wall background
-        // anymore — used to swap in a full-screen brick wall here first).
-        // One texture per step (5/4/3/2/1/СТАРТ), swapped on a single
-        // RawImage rather than 6 separate GameObjects (same texture-swap
-        // pattern TopResultsPage already uses for its photo slots).
-        // Full-screen, same as the flower grid underneath it.
-        var countdownGo = new GameObject("CountdownImage");
-        countdownGo.transform.SetParent(canvasGo.transform, false);
-        RawImage countdownImage = countdownGo.AddComponent<RawImage>();
-        RectTransform countdownRt = countdownImage.GetComponent<RectTransform>();
-        countdownRt.anchorMin = Vector2.zero;
-        countdownRt.anchorMax = Vector2.one;
-        countdownRt.offsetMin = Vector2.zero;
-        countdownRt.offsetMax = Vector2.zero;
-
-        Texture2D[] countdownTextures =
-        {
-            AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/CountdownGraffiti5.png"),
-            AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/CountdownGraffiti4.png"),
-            AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/CountdownGraffiti3.png"),
-            AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/CountdownGraffiti2.png"),
-            AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/CountdownGraffiti1.png"),
-            AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/CountdownGraffitiStart.png"),
-        };
+        // Black square covering the whole canvas, LAST sibling so it draws
+        // over the finished pile. Starts fully transparent; IntroSequence
+        // fades it in to hand off to the game screen behind it. The
+        // 5-4-3-2-1-СТАРТ graffiti overlay that used to sit here is gone, per
+        // feedback — its six CountdownGraffiti*.png are now unreferenced.
+        var darkenGo = new GameObject("DarkenOverlay");
+        darkenGo.transform.SetParent(canvasGo.transform, false);
+        Image darkenOverlay = darkenGo.AddComponent<Image>();
+        darkenOverlay.color = new Color(0f, 0f, 0f, 0f);
+        darkenOverlay.raycastTarget = false;
+        RectTransform darkenRt = darkenOverlay.GetComponent<RectTransform>();
+        darkenRt.anchorMin = Vector2.zero;
+        darkenRt.anchorMax = Vector2.one;
+        darkenRt.offsetMin = Vector2.zero;
+        darkenRt.offsetMax = Vector2.zero;
 
         // Continuous buzz while the flowers fill in (grows with them, see
         // IntroSequence) — same clip the players' own wing-flap loop uses,
         // reused rather than a new asset since it already reads as "in the
-        // air, building energy". Gear-shift plays once per countdown digit.
-        // Neither autoplays — IntroSequence starts/stops them on its own
-        // schedule instead of the instant the scene loads. Buzz (and the
-        // menu music cue below) are БК-specific — games 2-7 fill silently,
-        // per feedback (isPrimaryGame, see GameIntroThemes).
+        // air, building energy". Does not autoplay — IntroSequence starts and
+        // fades it on its own schedule instead of the instant the scene loads.
+        // Buzz (and the menu music cue below) are БК-specific — games 2-7 fill
+        // silently, per feedback (isPrimaryGame, see GameIntroThemes).
         var introGo = new GameObject(canvasName + "_Controller");
         AudioSource introBuzzSource = null;
         if (isPrimaryGame)
@@ -5584,29 +5571,20 @@ public static class SceneSetup
             introBuzzSource.volume = 0f;
         }
 
-        AudioSource introShiftSource = introGo.AddComponent<AudioSource>();
-        introShiftSource.clip = AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Audio/lady_bug/GearShift.wav");
-        introShiftSource.playOnAwake = false;
-
         IntroSequence intro = introGo.AddComponent<IntroSequence>();
         SerializedObject introSo = new SerializedObject(intro);
         introSo.FindProperty("canvasRoot").objectReferenceValue = canvasGo;
         introSo.FindProperty("canvasGroup").objectReferenceValue = canvasGroup;
-        introSo.FindProperty("countdownImage").objectReferenceValue = countdownImage;
-        SerializedProperty countdownTexturesProp = introSo.FindProperty("countdownTextures");
-        countdownTexturesProp.arraySize = countdownTextures.Length;
-        for (int i = 0; i < countdownTextures.Length; i++)
-            countdownTexturesProp.GetArrayElementAtIndex(i).objectReferenceValue = countdownTextures[i];
+        introSo.FindProperty("darkenOverlay").objectReferenceValue = darkenOverlay;
         if (isPrimaryGame)
             introSo.FindProperty("buzzSource").objectReferenceValue = introBuzzSource;
         // Wired for every slot (not just isPrimaryGame) — Finish() always
         // calls startScreen.OnRevealed() to reset the menu's carousel back
         // to page 0 right as it becomes visible, regardless of which
         // slot's intro just finished. isPrimaryGame itself is also wired
-        // here so RunCountdown can gate its PlayMusic() call to БК only.
+        // here so Finish() can gate its PlayMusic() call to БК only.
         introSo.FindProperty("startScreen").objectReferenceValue = Object.FindObjectOfType<StartScreenController>();
         introSo.FindProperty("isPrimaryGame").boolValue = isPrimaryGame;
-        introSo.FindProperty("shiftSource").objectReferenceValue = introShiftSource;
         SerializedProperty flowersProp = introSo.FindProperty("flowers");
         flowersProp.arraySize = orderedFlowers.Count;
         for (int i = 0; i < orderedFlowers.Count; i++)
