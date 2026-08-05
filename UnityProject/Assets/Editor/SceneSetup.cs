@@ -5439,15 +5439,26 @@ public static class SceneSetup
     // (true only for index 0) gates the fill-buzz sound and the menu music
     // cue — per feedback those are БК-specific content, not generic loader
     // chrome, so games 2-7 fill silently and don't trigger the menu music.
+    // Order matches GameSlotTitles above, one row per key — what falls is what
+    // the game is about. The art was originally wired in the order it happened
+    // to be generated, which left e.g. cat paws falling for Сизиф and question
+    // marks for Завод; reordered per feedback so each set lands on its own game.
     static readonly (string canvasName, string spriteFolder, string[] sprites, bool isPrimaryGame)[] GameIntroThemes =
     {
+        // 1 - Lady Bug Hit The Road
         ("IntroCanvas", "Assets/Sprites/lady_bug/", IntroFlowerSprites, true),
-        ("IntroCanvasGear", "Assets/Sprites/loader/", new[] { "Gear1.png", "Gear2.png", "Gear3.png" }, false),
-        ("IntroCanvasStone", "Assets/Sprites/loader/", new[] { "Stone1.png", "Stone2.png", "Stone3.png" }, false),
-        ("IntroCanvasCatPaw", "Assets/Sprites/loader/", new[] { "CatPaw1.png", "CatPaw2.png", "CatPaw3.png" }, false),
+        // 2 - Викторина про жизнь
         ("IntroCanvasQuestionMark", "Assets/Sprites/loader/", new[] { "QuestionMark1.png", "QuestionMark2.png", "QuestionMark3.png" }, false),
+        // 3 - Медитация в спешке
         ("IntroCanvasMeditation", "Assets/Sprites/loader/", new[] { "Meditation1.png", "Meditation2.png", "Meditation3.png" }, false),
-        ("IntroCanvasRobotHead", "Assets/Sprites/loader/", new[] { "RobotHead1.png", "RobotHead2.png", "RobotHead3.png" }, false),
+        // 4 - Бесконечный Сизиф
+        ("IntroCanvasStone", "Assets/Sprites/loader/", new[] { "Stone1.png", "Stone2.png", "Stone3.png" }, false),
+        // 5 - Завод
+        ("IntroCanvasGear", "Assets/Sprites/loader/", new[] { "Gear1.png", "Gear2.png", "Gear3.png" }, false),
+        // 6 - Таблетка в космосе — newly generated, there was no pill art
+        ("IntroCanvasPill", "Assets/Sprites/loader/", new[] { "Pill1.png", "Pill2.png", "Pill3.png" }, false),
+        // 7 - Игра про кота
+        ("IntroCanvasCatPaw", "Assets/Sprites/loader/", new[] { "CatPaw1.png", "CatPaw2.png", "CatPaw3.png" }, false),
     };
 
     static IntroSequence[] CreateAllIntroScreens()
