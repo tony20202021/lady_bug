@@ -121,19 +121,21 @@ public static class SceneSetup
         CreateStartScreen(playerRight, playerLeft, gestureCanvasLeft, gestureCanvasRight);
         CreatePauseDialog();
         CreateExitGesture();
-        // Loader (attract-mode controller-select) + flower-fill/countdown
-        // intro skipped for now, per feedback — boot straight into the
-        // button-selection menu instead of clicking through both every
-        // single test run. StartScreenCanvas has sat ready underneath them
-        // the whole time regardless (see IntroSequence's own class comment),
-        // so skipping these two just means nothing ever covers it — see
-        // StartScreenController.Awake's own PlayMusic()/OnRevealed() calls,
-        // added to replace what IntroSequence.Finish() used to trigger.
-        // CreateLoaderScreen/CreateAllIntroScreens (below) are left intact,
-        // not deleted — the real cabinet build still needs this real-
-        // controller-hold flow, this is a dev-time skip only.
-        // IntroSequence[] gameIntros = CreateAllIntroScreens();
-        // CreateLoaderScreen(gameIntros);
+        // Loader (attract-mode, hold one of the 7 game controls) + the
+        // flower-fill/countdown intro for whichever slot was held. Both were
+        // temporarily skipped so test runs booted straight into the menu; back
+        // on now, which is what the real cabinet needs.
+        //
+        // StartScreenCanvas sits ready underneath these the whole time (see
+        // IntroSequence's class comment) and is uncovered by
+        // IntroSequence.Finish(), which is also what calls the menu's
+        // OnRevealed() and — for slot 0 only — PlayMusic(). While these were
+        // skipped, StartScreenController.Awake did both itself; it now checks
+        // for an IntroSequence in the scene and stands down when one exists,
+        // so re-enabling here does not start the menu music underneath the
+        // loader.
+        IntroSequence[] gameIntros = CreateAllIntroScreens();
+        CreateLoaderScreen(gameIntros);
         CreateScreenInfoLabel();
 
         // After every generator has run, so the set of live textures is final.
