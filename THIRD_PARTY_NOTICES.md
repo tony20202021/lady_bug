@@ -47,7 +47,7 @@
 
 | Файл | Mixkit id | Название | Слот |
 |---|---|---|---|
-| `IntroClock.mp3` | 1060 | Wall clock tick tock | 2 — Викторина про жизнь |
+| `IntroClock.mp3` | 1063 | Fast wall clock ticking | 2 — Викторина про жизнь |
 | `IntroIndianFlute.mp3` | 2312 | Possitive indian flute [sic] | 3 — Медитация в спешке |
 | `IntroStones.mp3` | 400 | Stones and rocks falling | 4 — Бесконечный Сизиф |
 | `IntroFactoryHum.mp3` | 2133 | Technological futuristic hum | 5 — Завод |
@@ -56,8 +56,7 @@
 Слот 1 (БК) использует `Buzz.wav`, слот 7 (Игра про кота) — уже имеющийся
 `BadCat.mp3`; новых файлов под них не заводилось.
 
-`IntroClock.mp3` обрезан с 23 с до 8 с (`ffmpeg -t 8 -c copy`) — клип
-зацикливается, полная длина была лишним весом.
+Все файлы — превью с mixkit как есть, без обработки.
 
 ### ✅ `GearShift.wav` — не сторонний файл, синтезирован с нуля
 
