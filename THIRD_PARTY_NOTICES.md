@@ -40,6 +40,25 @@
 
 14-й файл — `GearShift.wav`, он **не с mixkit**, см. ниже.
 
+### Звуки заполнения экранов загрузчика — `Assets/Audio/loader/`
+
+Тоже mixkit, та же лицензия. По одному на игровой слот автомата (какой слот
+что — см. `SceneSetup.GameIntroThemes`):
+
+| Файл | Mixkit id | Название | Слот |
+|---|---|---|---|
+| `IntroClock.mp3` | 1060 | Wall clock tick tock | 2 — Викторина про жизнь |
+| `IntroIndianFlute.mp3` | 2312 | Possitive indian flute [sic] | 3 — Медитация в спешке |
+| `IntroStones.mp3` | 400 | Stones and rocks falling | 4 — Бесконечный Сизиф |
+| `IntroFactoryHum.mp3` | 2133 | Technological futuristic hum | 5 — Завод |
+| `IntroSpaceDrone.mp3` | 2747 | Spaceship drone travel noise | 6 — Таблетка в космосе |
+
+Слот 1 (БК) использует `Buzz.wav`, слот 7 (Игра про кота) — уже имеющийся
+`BadCat.mp3`; новых файлов под них не заводилось.
+
+`IntroClock.mp3` обрезан с 23 с до 8 с (`ffmpeg -t 8 -c copy`) — клип
+зацикливается, полная длина была лишним весом.
+
 ### ✅ `GearShift.wav` — не сторонний файл, синтезирован с нуля
 
 14-й аудиофайл — **не с mixkit и вообще ниоткуда не скачан**. Он сгенерирован

@@ -5443,22 +5443,34 @@ public static class SceneSetup
     // the game is about. The art was originally wired in the order it happened
     // to be generated, which left e.g. cat paws falling for Сизиф and question
     // marks for Завод; reordered per feedback so each set lands on its own game.
-    static readonly (string canvasName, string spriteFolder, string[] sprites, bool isPrimaryGame)[] GameIntroThemes =
+    // fillClip is the looping bed that plays while the objects rain down,
+    // growing louder as the screen fills — every slot now has its own instead
+    // of only БК having one and the rest filling in silence. The cat slot
+    // reuses the meow the game already ships for a Cat collision rather than
+    // adding a second copy of the same mixkit sound.
+    static readonly (string canvasName, string spriteFolder, string[] sprites, string fillClip, bool isPrimaryGame)[] GameIntroThemes =
     {
-        // 1 - Lady Bug Hit The Road
-        ("IntroCanvas", "Assets/Sprites/lady_bug/", IntroFlowerSprites, true),
-        // 2 - Викторина про жизнь
-        ("IntroCanvasQuestionMark", "Assets/Sprites/loader/", new[] { "QuestionMark1.png", "QuestionMark2.png", "QuestionMark3.png" }, false),
-        // 3 - Медитация в спешке
-        ("IntroCanvasMeditation", "Assets/Sprites/loader/", new[] { "Meditation1.png", "Meditation2.png", "Meditation3.png" }, false),
-        // 4 - Бесконечный Сизиф
-        ("IntroCanvasStone", "Assets/Sprites/loader/", new[] { "Stone1.png", "Stone2.png", "Stone3.png" }, false),
-        // 5 - Завод
-        ("IntroCanvasGear", "Assets/Sprites/loader/", new[] { "Gear1.png", "Gear2.png", "Gear3.png" }, false),
-        // 6 - Таблетка в космосе — newly generated, there was no pill art
-        ("IntroCanvasPill", "Assets/Sprites/loader/", new[] { "Pill1.png", "Pill2.png", "Pill3.png" }, false),
-        // 7 - Игра про кота
-        ("IntroCanvasCatPaw", "Assets/Sprites/loader/", new[] { "CatPaw1.png", "CatPaw2.png", "CatPaw3.png" }, false),
+        // 1 - Lady Bug Hit The Road — жужжание
+        ("IntroCanvas", "Assets/Sprites/lady_bug/", IntroFlowerSprites,
+            "Assets/Audio/lady_bug/Buzz.wav", true),
+        // 2 - Викторина про жизнь — тиканье часов
+        ("IntroCanvasQuestionMark", "Assets/Sprites/loader/", new[] { "QuestionMark1.png", "QuestionMark2.png", "QuestionMark3.png" },
+            "Assets/Audio/loader/IntroClock.mp3", false),
+        // 3 - Медитация в спешке — индийская флейта
+        ("IntroCanvasMeditation", "Assets/Sprites/loader/", new[] { "Meditation1.png", "Meditation2.png", "Meditation3.png" },
+            "Assets/Audio/loader/IntroIndianFlute.mp3", false),
+        // 4 - Бесконечный Сизиф — камни
+        ("IntroCanvasStone", "Assets/Sprites/loader/", new[] { "Stone1.png", "Stone2.png", "Stone3.png" },
+            "Assets/Audio/loader/IntroStones.mp3", false),
+        // 5 - Завод — технологический гул
+        ("IntroCanvasGear", "Assets/Sprites/loader/", new[] { "Gear1.png", "Gear2.png", "Gear3.png" },
+            "Assets/Audio/loader/IntroFactoryHum.mp3", false),
+        // 6 - Таблетка в космосе — космический эмбиент
+        ("IntroCanvasPill", "Assets/Sprites/loader/", new[] { "Pill1.png", "Pill2.png", "Pill3.png" },
+            "Assets/Audio/loader/IntroSpaceDrone.mp3", false),
+        // 7 - Игра про кота — мяуканье
+        ("IntroCanvasCatPaw", "Assets/Sprites/loader/", new[] { "CatPaw1.png", "CatPaw2.png", "CatPaw3.png" },
+            "Assets/Audio/lady_bug/BadCat.mp3", false),
     };
 
     static IntroSequence[] CreateAllIntroScreens()
@@ -5467,7 +5479,7 @@ public static class SceneSetup
         for (int i = 0; i < GameIntroThemes.Length; i++)
         {
             var theme = GameIntroThemes[i];
-            result[i] = CreateIntroScreen(theme.canvasName, theme.spriteFolder, theme.sprites, theme.isPrimaryGame);
+            result[i] = CreateIntroScreen(theme.canvasName, theme.spriteFolder, theme.sprites, theme.fillClip, theme.isPrimaryGame);
         }
         return result;
     }
@@ -5479,7 +5491,7 @@ public static class SceneSetup
     // ready underneath. Highest sorting order of any canvas — has to cover
     // absolutely everything (all 7 of these instances share it — never
     // shown at once, see CreateAllIntroScreens/LoaderScreenController).
-    static IntroSequence CreateIntroScreen(string canvasName, string spriteFolder, string[] spriteFiles, bool isPrimaryGame)
+    static IntroSequence CreateIntroScreen(string canvasName, string spriteFolder, string[] spriteFiles, string fillClipPath, bool isPrimaryGame)
     {
         var canvasGo = new GameObject(canvasName);
         Canvas canvas = canvasGo.AddComponent<Canvas>();
@@ -5581,31 +5593,27 @@ public static class SceneSetup
         darkenRt.offsetMin = Vector2.zero;
         darkenRt.offsetMax = Vector2.zero;
 
-        // Continuous buzz while the flowers fill in (grows with them, see
-        // IntroSequence) — same clip the players' own wing-flap loop uses,
-        // reused rather than a new asset since it already reads as "in the
-        // air, building energy". Does not autoplay — IntroSequence starts and
-        // fades it on its own schedule instead of the instant the scene loads.
-        // Buzz (and the menu music cue below) are БК-specific — games 2-7 fill
-        // silently, per feedback (isPrimaryGame, see GameIntroThemes).
+        // The slot's own looping bed while its objects fill in, growing louder
+        // with them (see IntroSequence). Every slot has one now — this used to
+        // be БК's buzz only, gated on isPrimaryGame, so the other six filled in
+        // silence. isPrimaryGame still gates the MENU music below, which really
+        // is БК-specific. Does not autoplay: IntroSequence starts and fades it
+        // on its own schedule rather than the instant the scene loads.
         var introGo = new GameObject(canvasName + "_Controller");
-        AudioSource introBuzzSource = null;
-        if (isPrimaryGame)
-        {
-            introBuzzSource = introGo.AddComponent<AudioSource>();
-            introBuzzSource.clip = AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Audio/lady_bug/Buzz.wav");
-            introBuzzSource.loop = true;
-            introBuzzSource.playOnAwake = false;
-            introBuzzSource.volume = 0f;
-        }
+        AudioSource introBuzzSource = introGo.AddComponent<AudioSource>();
+        introBuzzSource.clip = AssetDatabase.LoadAssetAtPath<AudioClip>(fillClipPath);
+        introBuzzSource.loop = true;
+        introBuzzSource.playOnAwake = false;
+        introBuzzSource.volume = 0f;
+        if (introBuzzSource.clip == null)
+            Debug.LogWarning($"IntroScreen {canvasName}: fill clip not found at {fillClipPath} — this slot will fill silently.");
 
         IntroSequence intro = introGo.AddComponent<IntroSequence>();
         SerializedObject introSo = new SerializedObject(intro);
         introSo.FindProperty("canvasRoot").objectReferenceValue = canvasGo;
         introSo.FindProperty("canvasGroup").objectReferenceValue = canvasGroup;
         introSo.FindProperty("darkenOverlay").objectReferenceValue = darkenOverlay;
-        if (isPrimaryGame)
-            introSo.FindProperty("buzzSource").objectReferenceValue = introBuzzSource;
+        introSo.FindProperty("buzzSource").objectReferenceValue = introBuzzSource;
         // Wired for every slot (not just isPrimaryGame) — Finish() always
         // calls startScreen.OnRevealed() to reset the menu's carousel back
         // to page 0 right as it becomes visible, regardless of which
