@@ -5411,6 +5411,23 @@ public static class SceneSetup
         "LotusYellow.png", "LotusBlue.png", "LotusPink.png",
     };
 
+    // Working titles for the 7 cabinet slots, shown on the loader's debug
+    // line so it is obvious which key is which. Index-matched to
+    // LoaderScreenController.gameStartKeys and to GameIntroThemes below.
+    //
+    // NOTE: only slot 1 exists. The other six are placeholders and every key
+    // still starts БК regardless (see CreateLoaderScreen's own comment).
+    static readonly string[] GameSlotTitles =
+    {
+        "1 - Lady Bug Hit The Road",
+        "2 - Викторина про жизнь",
+        "3 - Медитация в спешке",
+        "4 - Бесконечный Сизиф",
+        "5 - Завод",
+        "6 - Таблетка в космосе",
+        "7 - Игра про кота",
+    };
+
     // One themed falling-object set per game slot on the loader screen
     // (LoaderScreenController's gameStartKeys 1-7, see plan items 9-11) —
     // index 0 is БК's own flowers (lady_bug's real sprites), 1-6 are the
@@ -5715,9 +5732,16 @@ public static class SceneSetup
         debugHintText.alignment = TextAnchor.MiddleCenter;
         debugHintText.color = new Color(1f, 0.7f, 0.3f);
         debugHintText.text = "ВРЕМЕННО ДЛЯ ОТЛАДКИ - НАЖИМАЙТЕ ЦИФРЫ 1..7 ДЛЯ ЗАПУСКА ИГР";
+        // Index-matched to LoaderScreenController.gameStartKeys, i.e. this is
+        // the key you press, not just a list. Only slot 1 is a real game; the
+        // other six are titles for planned ones and all currently hand off
+        // into БК anyway (see GameIntroThemes).
+        debugHintText.text += "\n\n" + string.Join("\n", GameSlotTitles);
         Outline debugHintOutline = debugHintGo.AddComponent<Outline>();
         debugHintOutline.effectColor = Color.black;
         debugHintOutline.effectDistance = new Vector2(2f, -2f);
+        debugHintText.horizontalOverflow = HorizontalWrapMode.Overflow;
+        debugHintText.verticalOverflow = VerticalWrapMode.Overflow; // 9 lines in a box sized for one — Truncate would blank the lot (see CreateJoystickHudArrow)
         RectTransform debugHintRt = debugHintText.GetComponent<RectTransform>();
         debugHintRt.anchorMin = new Vector2(0.5f, 1f);
         debugHintRt.anchorMax = new Vector2(0.5f, 1f);
