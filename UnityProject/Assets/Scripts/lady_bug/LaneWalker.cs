@@ -29,6 +29,7 @@ public class LaneWalker : MonoBehaviour
     private bool _moving;
     private Transform _sprite;
     private float _baseSpriteScaleX;
+    private bool _hasFrameAnimation;
 
     // Whether this creature is actively crossing into a neighbouring lane
     // right now — read by SnakePose to pick between its idle/moving sprite.
@@ -67,14 +68,21 @@ public class LaneWalker : MonoBehaviour
         // TryStartMove) keeps the head leading instead of these creatures
         // sometimes walking backward into a lane.
         _baseSpriteScaleX = Mathf.Abs(_sprite.localScale.x);
+        _hasFrameAnimation = GetComponentInChildren<SpriteFrameAnimator>() != null;
     }
 
     private void Update()
     {
-        float wiggleAngle = _moving
-            ? Mathf.Sin(Time.time * crossingWiggleSpeed) * crossingWiggleAngle
-            : Mathf.Sin(Time.time * idleWiggleSpeed) * idleWiggleAngle;
-        _sprite.localRotation = Quaternion.Euler(0f, 0f, wiggleAngle);
+        // The wiggle is a stand-in for animation. Anything with real frames
+        // (SpriteFrameAnimator) animates itself, and rocking it as well just
+        // makes it look like it is sliding on ice.
+        if (!_hasFrameAnimation)
+        {
+            float wiggleAngle = _moving
+                ? Mathf.Sin(Time.time * crossingWiggleSpeed) * crossingWiggleAngle
+                : Mathf.Sin(Time.time * idleWiggleSpeed) * idleWiggleAngle;
+            _sprite.localRotation = Quaternion.Euler(0f, 0f, wiggleAngle);
+        }
 
         if (!_moving)
         {

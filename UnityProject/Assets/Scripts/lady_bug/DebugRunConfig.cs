@@ -5,6 +5,14 @@ public static class DebugRunConfig
 {
     public const bool EmptyRoad = false;
 
+    // Debug: when non-empty, the road spawns ONLY this prefab — every other
+    // pickup, obstacle and the big arch are left out of the pools. For looking
+    // at one object's animation without waiting for it to come round in the
+    // random rotation. Set to "" for a normal run.
+    // Applied at scene-build time (SceneSetup.CreateSpawner), so changing it
+    // needs Tools -> Rebuild Scene.
+    public const string OnlyEntity = "Dog";
+
     public static float RoadHalfWidth
     {
         get

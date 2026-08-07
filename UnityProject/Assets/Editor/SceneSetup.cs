@@ -109,7 +109,10 @@ public static class SceneSetup
         CreateRoadShoulder();
         CreateShoulderDecor();
         CreateSpawner();
-        CreateBigArchSpawner();
+        // The big arch has its own spawner, so DebugRunConfig.OnlyEntity's
+        // pool filtering does not reach it — skip it outright instead.
+        if (string.IsNullOrEmpty(DebugRunConfig.OnlyEntity))
+            CreateBigArchSpawner();
         CreateSideScenery();
         CreateSky();
         CreateAudio();
@@ -1017,6 +1020,30 @@ public static class SceneSetup
         if (arch != null)
             badDuckPrefabs.Add(arch);
 
+        // Debug: keep only the one prefab under inspection, in whichever pool
+        // it belongs to, and empty the rest. EntitySpawner picks good-vs-bad
+        // first and then a prefab from that pool, so leaving the other pools
+        // populated would still let everything else through.
+        if (!string.IsNullOrEmpty(DebugRunConfig.OnlyEntity))
+        {
+            bool Keep(GameObject p) => p != null && p.name == DebugRunConfig.OnlyEntity;
+            int Found(System.Collections.Generic.List<GameObject> list)
+            {
+                int n = 0;
+                foreach (GameObject p in list)
+                    if (Keep(p)) n++;
+                return n;
+            }
+            int found = Found(goodPrefabs) + Found(badJumpPrefabs) + Found(badDuckPrefabs);
+            if (found == 0)
+                Debug.LogWarning($"DebugRunConfig.OnlyEntity = \"{DebugRunConfig.OnlyEntity}\" matches no prefab — the road will be empty.");
+
+            goodPrefabs.RemoveAll(p => !Keep(p));
+            badJumpPrefabs.RemoveAll(p => !Keep(p));
+            badDuckPrefabs.RemoveAll(p => !Keep(p));
+            Debug.LogWarning($"DebugRunConfig.OnlyEntity is set to \"{DebugRunConfig.OnlyEntity}\" — the road spawns nothing else. Clear it for a normal run.");
+        }
+
         var spawnerGo = new GameObject("Spawner");
         EntitySpawner spawner = spawnerGo.AddComponent<EntitySpawner>();
 
@@ -1484,9 +1511,53 @@ public static class SceneSetup
         AssetDatabase.CreateAsset(material, materialPath);
         renderer.sharedMaterial = material;
 
+        AttachFrameAnimation(name, root, renderer);
+
         GameObject prefab = PrefabUtility.SaveAsPrefabAsset(root, savePath);
         Object.DestroyImmediate(root);
         return prefab;
+    }
+
+    // Objects that have a real frame set in Assets/Sprites/lady_bug/<name>Frames/
+    // animate off it instead of LaneWalker's placeholder wiggle. Frames are
+    // picked up by folder convention rather than a table, so adding a set for
+    // the next creature is a matter of dropping the files in — nothing here
+    // needs editing.
+    static void AttachFrameAnimation(string name, GameObject root, Renderer renderer)
+    {
+        string dir = "Assets/Sprites/lady_bug/" + name + "Frames";
+        if (!AssetDatabase.IsValidFolder(dir))
+            return;
+
+        string[] guids = AssetDatabase.FindAssets("t:Texture2D", new[] { dir });
+        var paths = new System.Collections.Generic.List<string>();
+        foreach (string guid in guids)
+            paths.Add(AssetDatabase.GUIDToAssetPath(guid));
+        paths.Sort(System.StringComparer.Ordinal); // DogWalk01..10 — plain name order is frame order
+
+        var frameList = new System.Collections.Generic.List<Texture2D>();
+        foreach (string path in paths)
+        {
+            Texture2D t = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+            if (t != null)
+                frameList.Add(t);
+        }
+
+        if (frameList.Count == 0)
+            return;
+
+        Texture2D[] frames = frameList.ToArray();
+
+        SpriteFrameAnimator anim = root.AddComponent<SpriteFrameAnimator>();
+        SerializedObject animSo = new SerializedObject(anim);
+        animSo.FindProperty("targetRenderer").objectReferenceValue = renderer;
+        SerializedProperty framesProp = animSo.FindProperty("frames");
+        framesProp.arraySize = frames.Length;
+        for (int i = 0; i < frames.Length; i++)
+            framesProp.GetArrayElementAtIndex(i).objectReferenceValue = frames[i];
+        animSo.ApplyModifiedPropertiesWithoutUndo();
+
+        Debug.Log($"{name}: frame animation from {dir} ({frames.Length} frames)");
     }
 
     // Flat ground decal — a Quad rotated flat on the road (same trick as
