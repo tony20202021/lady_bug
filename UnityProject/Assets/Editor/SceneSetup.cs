@@ -927,7 +927,7 @@ public static class SceneSetup
         ("Motorcycle", "Motorcycle.png", 1.6f, -1),
         ("Dog", "Dog.png", 1.5f, -1),
         ("Cat", "Cat.png", 1.2f, -1),
-        ("Rabbit", "Rabbit.png", 1.45f, -1),
+        ("Rabbit", "Rabbit.png", 1.74f, -1), // +20% — читался мелким рядом с остальными зверями; коллайдер не тронут (см. LaneObjectColliderHeightOverrides)
         ("Crow", "Crow.png", 1.1f, -1),
         ("SandPile", "SandPile.png", 1.3f, -1),
         ("BrickPile", "BrickPile.png", 1.3f, -1),
