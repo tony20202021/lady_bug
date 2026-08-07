@@ -15,7 +15,7 @@ public static class DebugRunConfig
     //
     // Set to "" for a normal run. Applied at scene-build time, so changing it
     // needs Tools -> Rebuild Scene.
-    public const string OnlyEntity = "Dog";
+    public const string OnlyEntity = "Cat";
 
     public static bool IsolatingSingleEntity => !string.IsNullOrEmpty(OnlyEntity);
 
