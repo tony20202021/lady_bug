@@ -929,6 +929,7 @@ public static class SceneSetup
         ("Cat", "Cat.png", 1.2f, -1),
         ("Rabbit", "Rabbit.png", 1.74f, -1), // +20% — читался мелким рядом с остальными зверями; коллайдер не тронут (см. LaneObjectColliderHeightOverrides)
         ("Crow", "Crow.png", 1.1f, -1),
+        ("Snake", "Snake.png", 1.9f, -1),
         ("SandPile", "SandPile.png", 1.3f, -1),
         ("BrickPile", "BrickPile.png", 1.3f, -1),
         ("WoodPile", "WoodPile.png", 1.2f, -1),
@@ -936,7 +937,7 @@ public static class SceneSetup
     };
 
     // Living creatures among LaneObjects that drift sideways between lanes (LaneWalker).
-    static readonly string[] WanderingAnimals = { "Dog", "Cat", "Crow", "Rabbit" };
+    static readonly string[] WanderingAnimals = { "Dog", "Cat", "Crow", "Rabbit", "Snake" };
 
     // Piles are meant to block the whole lane, not just sit in a corner of
     // it — stretched wider than their (roughly square) art would give on
@@ -967,6 +968,7 @@ public static class SceneSetup
         { "Motorcycle", 1.0f },
         { "Dog", 1.0f },
         { "Rabbit", 1.0f },
+        { "Snake", 1.0f }, // высокая стойка кобры выше прыжка (1.4) — бокс только по телу у земли
     };
 
     // (name, texture file, roadside height)
@@ -1019,9 +1021,6 @@ public static class SceneSetup
                 badJumpPrefabs.Add(decal);
         }
 
-        GameObject snake = CreateSnakePrefab();
-        if (snake != null)
-            badJumpPrefabs.Add(snake);
 
         var badDuckPrefabs = new System.Collections.Generic.List<GameObject>();
         GameObject arch = CreateArchPrefab();
@@ -1392,82 +1391,6 @@ public static class SceneSetup
         so.FindProperty("feetSource").objectReferenceValue = feetSource;
         so.FindProperty("wingsSource").objectReferenceValue = wingsSource;
         so.ApplyModifiedPropertiesWithoutUndo();
-    }
-
-    // The snake — a wandering bad object like Dog/Cat/Crow/Rabbit (LaneWalker
-    // drives its side-to-side lane changes), but with an actual pose swap
-    // instead of just a wiggle: reared up like a cobra while idle, a
-    // zigzagging slither while crossing lanes (SnakePose reads
-    // LaneWalker.IsMoving). Bespoke instead of going through
-    // CreateEntityPrefab since it needs two textures wired to a component,
-    // not one texture into a plain material.
-    static GameObject CreateSnakePrefab()
-    {
-        Texture2D idleTex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/SnakeCobra.png");
-        Texture2D movingTex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/SnakeSlither.png");
-        if (idleTex == null || movingTex == null)
-        {
-            Debug.LogWarning("Snake textures not found in Assets/Sprites/");
-            return null;
-        }
-
-        const string name = "Snake";
-        const float height = 1.9f;
-
-        var root = new GameObject(name);
-        root.transform.position = new Vector3(0f, height / 2f, 0f);
-        root.AddComponent<MovingEntity>();
-        root.AddComponent<ScoreValue>().value = -1;
-
-        LaneWalker walker = root.AddComponent<LaneWalker>();
-        SerializedObject walkerSo = new SerializedObject(walker);
-        walkerSo.FindProperty("laneWidth").floatValue = LaneWidth;
-        walkerSo.FindProperty("laneCount").intValue = LaneCount;
-        walkerSo.ApplyModifiedPropertiesWithoutUndo();
-
-        float aspect = (float)idleTex.width / idleTex.height;
-
-        // Full sprite height includes the raised cobra head, well above what
-        // a jump (jumpHeightDelta 1.4) can clear — trigger box only covers
-        // the coiled body at ground level, same fix as Bicycle/Motorcycle.
-        const float colliderHeight = 1.0f;
-        BoxCollider box = root.AddComponent<BoxCollider>();
-        box.isTrigger = true;
-        box.size = new Vector3(height * aspect, colliderHeight, 0.3f);
-        box.center = new Vector3(0f, -(height - colliderHeight) / 2f, 0f);
-
-        AddStaticGroundShadow(root, height * aspect * 0.7f, height * 0.35f, name + "_Shadow");
-
-        GameObject sprite = GameObject.CreatePrimitive(PrimitiveType.Quad);
-        sprite.name = "Sprite";
-        Object.DestroyImmediate(sprite.GetComponent<Collider>());
-        sprite.transform.SetParent(root.transform);
-        sprite.transform.localScale = new Vector3(height * aspect, height, 1f);
-        sprite.transform.localPosition = Vector3.zero;
-
-        Renderer renderer = sprite.GetComponent<Renderer>();
-        Shader shader = Shader.Find("Legacy Shaders/Transparent/Cutout/Diffuse") ?? Shader.Find("Standard");
-        Material material = new Material(shader) { mainTexture = idleTex };
-
-        System.IO.Directory.CreateDirectory("Assets/Materials/lady_bug");
-        string materialPath = "Assets/Materials/lady_bug/" + name + ".mat";
-        AssetDatabase.DeleteAsset(materialPath);
-        AssetDatabase.CreateAsset(material, materialPath);
-        renderer.sharedMaterial = material;
-
-        SnakePose pose = root.AddComponent<SnakePose>();
-        SerializedObject poseSo = new SerializedObject(pose);
-        poseSo.FindProperty("walker").objectReferenceValue = walker;
-        poseSo.FindProperty("spriteRenderer").objectReferenceValue = renderer;
-        poseSo.FindProperty("idleTexture").objectReferenceValue = idleTex;
-        poseSo.FindProperty("movingTexture").objectReferenceValue = movingTex;
-        poseSo.FindProperty("height").floatValue = height;
-        poseSo.ApplyModifiedPropertiesWithoutUndo();
-
-        string savePath = "Assets/Prefabs/lady_bug/Snake.prefab";
-        GameObject prefab = PrefabUtility.SaveAsPrefabAsset(root, savePath);
-        Object.DestroyImmediate(root);
-        return prefab;
     }
 
     static GameObject CreateEntityPrefab(string name, string texturePath, float height, string savePath, int? score = null, bool canWander = false, float? width = null, float? colliderHeight = null)

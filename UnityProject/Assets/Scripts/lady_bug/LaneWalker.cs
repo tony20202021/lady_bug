@@ -32,7 +32,9 @@ public class LaneWalker : MonoBehaviour
     private bool _hasFrameAnimation;
 
     // Whether this creature is actively crossing into a neighbouring lane
-    // right now — read by SnakePose to pick between its idle/moving sprite.
+    // right now. Used to pick the faster of the two placeholder wiggles; the
+    // snake also used to read it to swap between a reared and a slithering
+    // sprite, before it moved onto the shared frame animation like everyone else.
     public bool IsMoving => _moving;
 
     public void ConfigureLanes(int count, int? snapLane = null)
