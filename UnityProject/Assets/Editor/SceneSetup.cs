@@ -107,13 +107,21 @@ public static class SceneSetup
         CreateRoad();
         CreateSideGround();
         CreateRoadShoulder();
-        CreateShoulderDecor();
+        // DebugRunConfig.OnlyEntity isolates one object for inspection. Its
+        // pool filtering inside CreateSpawner only reaches the road entities,
+        // so everything that has its OWN spawner has to be skipped here:
+        // the big arch, the roadside scenery, the shoulder decor, and (inside
+        // CreateSky) the clouds and birds. The road, ground, shoulder and sky
+        // backdrop stay — with those gone there is no sense of motion left to
+        // judge the animation against.
+        if (!DebugRunConfig.IsolatingSingleEntity)
+            CreateShoulderDecor();
         CreateSpawner();
-        // The big arch has its own spawner, so DebugRunConfig.OnlyEntity's
-        // pool filtering does not reach it — skip it outright instead.
-        if (string.IsNullOrEmpty(DebugRunConfig.OnlyEntity))
+        if (!DebugRunConfig.IsolatingSingleEntity)
+        {
             CreateBigArchSpawner();
-        CreateSideScenery();
+            CreateSideScenery();
+        }
         CreateSky();
         CreateAudio();
         CreateHelpScreen();
@@ -1038,10 +1046,23 @@ public static class SceneSetup
             if (found == 0)
                 Debug.LogWarning($"DebugRunConfig.OnlyEntity = \"{DebugRunConfig.OnlyEntity}\" matches no prefab — the road will be empty.");
 
-            goodPrefabs.RemoveAll(p => !Keep(p));
-            badJumpPrefabs.RemoveAll(p => !Keep(p));
-            badDuckPrefabs.RemoveAll(p => !Keep(p));
-            Debug.LogWarning($"DebugRunConfig.OnlyEntity is set to \"{DebugRunConfig.OnlyEntity}\" — the road spawns nothing else. Clear it for a normal run.");
+            GameObject only = null;
+            foreach (var list in new[] { goodPrefabs, badJumpPrefabs, badDuckPrefabs })
+                foreach (GameObject p in list)
+                    if (Keep(p)) only = p;
+
+            // Put it in ALL THREE pools, not just its own. EntitySpawner picks
+            // good-vs-bad first and only then a prefab, so leaving the other
+            // pools empty means every tick that rolled the empty side spawns
+            // nothing — at goodChance 0.5 that halves the rate, and before the
+            // game starts PickPrefab only ever reads goodPrefabs, so a bad
+            // object would never show on the start screen at all.
+            goodPrefabs.Clear(); badJumpPrefabs.Clear(); badDuckPrefabs.Clear();
+            if (only != null)
+            {
+                goodPrefabs.Add(only); badJumpPrefabs.Add(only); badDuckPrefabs.Add(only);
+            }
+            Debug.LogWarning($"DebugRunConfig.OnlyEntity is set to \"{DebugRunConfig.OnlyEntity}\" — the road spawns nothing else, and the scenery, shoulder decor, clouds and birds are skipped. Clear it for a normal run.");
         }
 
         var spawnerGo = new GameObject("Spawner");
@@ -1114,6 +1135,12 @@ public static class SceneSetup
         System.IO.Directory.CreateDirectory("Assets/Prefabs/lady_bug");
 
         CreateSkyBackground();
+
+        // Backdrop only while isolating one object — drifting clouds and
+        // passing birds are exactly the moving clutter that makes it hard to
+        // watch a single animation (see DebugRunConfig.OnlyEntity).
+        if (DebugRunConfig.IsolatingSingleEntity)
+            return;
 
         var prefabs = new System.Collections.Generic.List<GameObject>();
         foreach (var (name, file, height) in CloudSprites)
