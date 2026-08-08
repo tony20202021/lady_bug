@@ -37,7 +37,7 @@ public class WinCelebrationFx : MonoBehaviour
     // Firework is the yellow one (single hue, RGB ~255/227/50); confetti is the
     // multicoloured one — checked against the frames, not guessed from the names.
     [SerializeField] private float fireworkOffsetY = -228f;
-    [SerializeField] private float confettiOffsetY = -368f;
+    [SerializeField] private float confettiOffsetY = -314f; // поднят на 54 (5% от 1080)
 
     Texture2D[] _confettiFrames;
     Texture2D[] _fireworkFrames;
