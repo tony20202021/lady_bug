@@ -35,6 +35,7 @@
 | `StartScreenMusic.mp3` | 506 | Little Bells | из доков |
 | `MenuMusic_PopTrack03.mp3` | 729 | — | из доков |
 | `MenuMusic_BanjoMan.mp3` | 822 | — | из доков |
+| `WinApplause.wav` | **513** | Applause ambience loop | скачано под эту задачу |
 
 Прямые ссылки: `https://assets.mixkit.co/active_storage/sfx/<id>/<id>-preview.mp3`
 

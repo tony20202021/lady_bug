@@ -2508,6 +2508,19 @@ public static class SceneSetup
         so.FindProperty("winCongratsTextRoot").objectReferenceValue = winCongratsRt;
         so.FindProperty("statsBackdrop").objectReferenceValue = statsBackdropGo;
         so.FindProperty("recapDim").objectReferenceValue = recapDimGo;
+
+        // Аплодисменты под праздничную часть рекапа (см. WinSequence.SetApplause).
+        // Свой AudioSource на объекте WinSequence, а не через SfxManager: тот
+        // играет одиночные PlayOneShot, а здесь нужен зацикленный фон, который
+        // держится через несколько экранов подряд.
+        AudioSource applauseSource = win.gameObject.AddComponent<AudioSource>();
+        applauseSource.clip = AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Audio/lady_bug/WinApplause.wav");
+        applauseSource.loop = true;
+        applauseSource.playOnAwake = false;
+        applauseSource.volume = 1f;
+        if (applauseSource.clip == null)
+            Debug.LogWarning("WinApplause.wav not found — the recap will be silent.");
+        so.FindProperty("applauseSource").objectReferenceValue = applauseSource;
         so.FindProperty("statsTitle").objectReferenceValue = statsTitle;
         SerializedProperty statsRowsProp = so.FindProperty("statsRows");
         statsRowsProp.arraySize = statsRows.Length;

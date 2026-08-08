@@ -67,6 +67,13 @@ public class WinSequence : MonoBehaviour
     // "the world" and are meant to be watched undimmed; everything after is UI
     // over a frozen scene.
     [SerializeField] private GameObject recapDim;
+    // Looping crowd applause under the celebratory half of the recap. Started
+    // on the results pages only when the run actually placed in something,
+    // carries through the photo and the leaderboard tables without a gap, and
+    // is always on for the final firework hold — that beat is a celebration
+    // whether or not anything was won.
+    [SerializeField] private AudioSource applauseSource;
+    [SerializeField] private float applauseFadeOutDuration = 1.2f;
     // Stats pages — a title plus a pool of checkbox rows (CreateWinCheckRow),
     // matching the checklist style already used elsewhere (СУТЬ ИГРЫ, ЦЕЛЬ)
     // instead of one big multi-line text block. Each page uses however many
@@ -427,6 +434,13 @@ public class WinSequence : MonoBehaviour
 
         HideGameplayHudPanels();
 
+        // Applause from here if the run placed at all — it then runs unbroken
+        // through the photo and the leaderboard tables. Starting and stopping
+        // it per screen would chop the crowd up between adjacent celebration
+        // screens.
+        if (leaderboardRecords != null && leaderboardRecords.Count > 0)
+            SetApplause(true);
+
         if (statsBackdrop != null)
             statsBackdrop.SetActive(true);
         try
@@ -460,6 +474,7 @@ public class WinSequence : MonoBehaviour
             _winText.text = WinTitlePlain;
         if (winTextRoot != null)
             winTextRoot.gameObject.SetActive(true);
+        SetApplause(true); // no-op if it is already running from the results pages
         SetFinalCelebrationVisible(true);
 
         // Once the leaderboard tables hide, all that's left on screen is
@@ -472,6 +487,7 @@ public class WinSequence : MonoBehaviour
             yield return _winCelebration.WaitForCyclesComplete();
 
         SetFinalCelebrationFxVisible(false);
+        yield return StartCoroutine(FadeOutApplause());
         yield return new WaitForSecondsRealtime(FinalCelebrationPostFxPause);
 
         // Drop any win-boost / pause leftovers before the reload — otherwise
@@ -481,6 +497,43 @@ public class WinSequence : MonoBehaviour
             SpeedController.Instance.ResetForMenu();
 
         SceneManager.LoadScene(SceneManager.GetActiveScene().name);
+    }
+
+    private void SetApplause(bool on)
+    {
+        if (applauseSource == null)
+            return;
+
+        if (on)
+        {
+            if (!applauseSource.isPlaying)
+            {
+                applauseSource.volume = 1f;
+                applauseSource.Play();
+            }
+            return;
+        }
+
+        applauseSource.Stop();
+    }
+
+    // Cutting a crowd off mid-clap sounds like the audio broke, so the very
+    // end eases out instead. Unscaled: the cutscene runs with the game paused.
+    private IEnumerator FadeOutApplause()
+    {
+        if (applauseSource == null || !applauseSource.isPlaying)
+            yield break;
+
+        float start = applauseSource.volume;
+        float t = 0f;
+        while (t < applauseFadeOutDuration)
+        {
+            t += Time.unscaledDeltaTime;
+            applauseSource.volume = Mathf.Lerp(start, 0f, Mathf.Clamp01(t / applauseFadeOutDuration));
+            yield return null;
+        }
+        applauseSource.Stop();
+        applauseSource.volume = start;
     }
 
     private void HideGameplayHudPanels()
