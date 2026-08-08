@@ -16,6 +16,14 @@ public class LiveBugReactionAnimator : MonoBehaviour
     [SerializeField] private KeyCode upKey = KeyCode.UpArrow;
     [SerializeField] private KeyCode downKey = KeyCode.DownArrow;
 
+    // Wing buzz while this bug is in the air — the training screen was silent
+    // during flight while the real game buzzes (PlayerMovementSfx). Same trick
+    // as there: the source loops from the start at volume 0 and is only
+    // volume-gated, so entering and leaving flight never clicks or restarts the
+    // loop mid-cycle.
+    [SerializeField] private AudioSource wingsSource;
+    [SerializeField] private float wingsVolume = 0.5f;
+
     [SerializeField] private RawImage bugImage;
     [SerializeField] private Texture2D bugNormalTexture;
     [SerializeField] private Texture2D bugAirTexture1;
@@ -333,11 +341,25 @@ public class LiveBugReactionAnimator : MonoBehaviour
 
         if (!LiveAnimators.Contains(this))
             LiveAnimators.Add(this);
+
+        // In OnEnable rather than Start: the carousel hides pages with
+        // SetActive, which stops the source, and it does not resume by itself
+        // when the page comes back round. Starts silent — Update gates volume.
+        if (wingsSource != null && !wingsSource.isPlaying)
+        {
+            wingsSource.volume = 0f;
+            wingsSource.Play();
+        }
     }
 
     private void OnDisable()
     {
         LiveAnimators.Remove(this);
+        // The carousel hides pages with SetActive, and a paused source resumes
+        // at whatever volume it had — leave it silent so a page that reopens
+        // while the player is on the ground doesn't buzz for a frame.
+        if (wingsSource != null)
+            wingsSource.volume = 0f;
     }
 
     private void CaptureRestPose()
@@ -458,6 +480,12 @@ public class LiveBugReactionAnimator : MonoBehaviour
         // and started again. A jump begun during the window is already
         // running by the time the pose starts being drawn.
         bool up = UpdateJumpState();
+
+        // Volume-gated, never Play/Stop — see wingsSource's own comment.
+        // Outside the settle gate below, so a jump that began during the
+        // settle window is audible for its whole flight, not just the tail.
+        if (wingsSource != null)
+            wingsSource.volume = up ? wingsVolume : 0f;
 
         if (Time.time < _settleUntil)
             return;

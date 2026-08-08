@@ -3881,6 +3881,17 @@ public static class SceneSetup
         so.FindProperty("rightKey").intValue = (int)right;
         so.FindProperty("upKey").intValue = (int)up;
         so.FindProperty("downKey").intValue = (int)down;
+        // Жужжание крыльев в полёте — тот же клип, что у настоящих жуков
+        // (PlayerMovementSfx). Не autoplay: источник заводится в Start()
+        // самого аниматора на нулевой громкости.
+        AudioSource wings = bugGo.AddComponent<AudioSource>();
+        wings.clip = AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Audio/lady_bug/Buzz.wav");
+        wings.loop = true;
+        wings.playOnAwake = false;
+        wings.volume = 0f;
+        if (wings.clip == null)
+            Debug.LogWarning("LiveBugPreview: Buzz.wav not found — training flight will be silent.");
+        so.FindProperty("wingsSource").objectReferenceValue = wings;
         so.FindProperty("bugImage").objectReferenceValue = bugImage;
         so.FindProperty("bugNormalTexture").objectReferenceValue = bugTex;
         so.FindProperty("bugAirTexture1").objectReferenceValue = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/" + spriteFile.Replace(".png", "Air1.png"));
