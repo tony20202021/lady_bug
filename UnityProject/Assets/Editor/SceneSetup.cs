@@ -2251,12 +2251,30 @@ public static class SceneSetup
         // cover both text boxes (record reveal above, stats pages below)
         // since WinSequence shows them one after another with this staying
         // up for both, not two separate backdrops popping in and out.
+        // Затемнение всей сцены на время рекапа. Панели итогов и таблиц
+        // закрывают лишь часть экрана и разного размера, поэтому без этого
+        // фон за ними то темнел, то нет — в зависимости от того, какая
+        // страница сейчас показана. Создаётся до панелей и явно ставится
+        // первым ребёнком, чтобы рисоваться под всем остальным UI.
+        var recapDimGo = new GameObject("RecapDim");
+        recapDimGo.transform.SetParent(scoreCanvas.transform, false);
+        Image recapDimImg = recapDimGo.AddComponent<Image>();
+        recapDimImg.color = new Color(0f, 0f, 0f, 0.55f);
+        recapDimImg.raycastTarget = false;
+        RectTransform recapDimRt = recapDimGo.GetComponent<RectTransform>();
+        recapDimRt.anchorMin = Vector2.zero;
+        recapDimRt.anchorMax = Vector2.one;
+        recapDimRt.offsetMin = Vector2.zero;
+        recapDimRt.offsetMax = Vector2.zero;
+        recapDimGo.transform.SetAsFirstSibling();
+        recapDimGo.SetActive(false);
+
         var statsBackdropGo = new GameObject("StatsBackdrop");
         statsBackdropGo.transform.SetParent(scoreCanvas.transform, false);
         Image statsBackdropImg = statsBackdropGo.AddComponent<Image>();
         // Непрозрачная: при 0.22 сквозь панель просвечивала 3D-сцена и она
         // читалась серой, а не как окно поверх игры.
-        statsBackdropImg.color = new Color(0.07f, 0.07f, 0.09f, 1f);
+        statsBackdropImg.color = new Color(0.18f, 0.18f, 0.22f, 1f);
         Outline statsBackdropOutline = statsBackdropGo.AddComponent<Outline>();
         statsBackdropOutline.effectColor = Color.gray;
         statsBackdropOutline.effectDistance = new Vector2(4f, -4f);
@@ -2440,7 +2458,7 @@ public static class SceneSetup
         var leaderboardBgGo = new GameObject("Background");
         leaderboardBgGo.transform.SetParent(leaderboardRootRt, false);
         Image leaderboardBg = leaderboardBgGo.AddComponent<Image>();
-        leaderboardBg.color = new Color(0.07f, 0.07f, 0.09f, 1f); // непрозрачная, см. StatsBackdrop выше
+        leaderboardBg.color = new Color(0.18f, 0.18f, 0.22f, 1f); // непрозрачная, см. StatsBackdrop выше
         Outline leaderboardBgOutline = leaderboardBgGo.AddComponent<Outline>();
         leaderboardBgOutline.effectColor = Color.gray;
         leaderboardBgOutline.effectDistance = new Vector2(4f, -4f);
@@ -2479,6 +2497,7 @@ public static class SceneSetup
         so.FindProperty("winTextRoot").objectReferenceValue = winRt;
         so.FindProperty("winCongratsTextRoot").objectReferenceValue = winCongratsRt;
         so.FindProperty("statsBackdrop").objectReferenceValue = statsBackdropGo;
+        so.FindProperty("recapDim").objectReferenceValue = recapDimGo;
         so.FindProperty("statsTitle").objectReferenceValue = statsTitle;
         SerializedProperty statsRowsProp = so.FindProperty("statsRows");
         statsRowsProp.arraySize = statsRows.Length;

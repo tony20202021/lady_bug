@@ -57,6 +57,12 @@ public class WinSequence : MonoBehaviour
     // Shared dark-tint backdrop behind the stats pages — same treatment
     // every other table in the game uses.
     [SerializeField] private GameObject statsBackdrop;
+    // Full-screen dim behind the whole recap. The panels themselves only
+    // cover part of the screen and differ in size page to page, so without
+    // this the background appeared to darken on some screens and not others.
+    // Goes up once at the start of the cutscene and stays until the scene
+    // reloads — there is no point in the run where an undimmed frame is wanted.
+    [SerializeField] private GameObject recapDim;
     // Stats pages — a title plus a pool of checkbox rows (CreateWinCheckRow),
     // matching the checklist style already used elsewhere (СУТЬ ИГРЫ, ЦЕЛЬ)
     // instead of one big multi-line text block. Each page uses however many
@@ -260,6 +266,9 @@ public class WinSequence : MonoBehaviour
         // First thing shown, before anything else changes — controls go
         // dead the moment this sequence takes over (right below), so the
         // player needs to see why before the world starts fading/flying.
+        if (recapDim != null)
+            recapDim.SetActive(true);
+
         if (finishText != null)
         {
             finishText.SetActive(true);

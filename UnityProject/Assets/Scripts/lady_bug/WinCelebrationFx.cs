@@ -30,6 +30,14 @@ public class WinCelebrationFx : MonoBehaviour
     [SerializeField] private float confettiFps = 24f;
     [SerializeField] private float fireworkFps = 20f;
 
+    // Both bursts sit high in their own frame, so centred on screen they read
+    // as floating above the text. Nudged down — the confetti further, since its
+    // sheet has more empty headroom than the firework's.
+    // Firework is the yellow one (single hue, RGB ~255/227/50); confetti is the
+    // multicoloured one — checked against the frames, not guessed from the names.
+    [SerializeField] private float fireworkOffsetY = -120f;
+    [SerializeField] private float confettiOffsetY = -260f;
+
     Texture2D[] _confettiFrames;
     Texture2D[] _fireworkFrames;
     float _timer;
@@ -89,18 +97,20 @@ public class WinCelebrationFx : MonoBehaviour
     void ApplyLayout()
     {
         if (fxImage != null)
-            LayoutFullScreen(fxImage.rectTransform);
+            LayoutFullScreen(fxImage.rectTransform, CurrentOffsetY);
     }
+
+    float CurrentOffsetY => _showingFirework ? fireworkOffsetY : confettiOffsetY;
 
     // The frames are square (512 confetti, 256 firework). Stretching them to
     // 16:9 would visibly oval the bursts, so the square is sized to the canvas
     // WIDTH and allowed to overflow top and bottom instead.
-    static void LayoutFullScreen(RectTransform rt)
+    static void LayoutFullScreen(RectTransform rt, float offsetY = 0f)
     {
         rt.anchorMin = new Vector2(0.5f, 0.5f);
         rt.anchorMax = new Vector2(0.5f, 0.5f);
         rt.pivot = new Vector2(0.5f, 0.5f);
-        rt.anchoredPosition = Vector2.zero;
+        rt.anchoredPosition = new Vector2(0f, offsetY);
 
         float side = 1920f; // canvas reference width — see CanvasScaler on the score canvas
         var parent = rt.parent as RectTransform;
@@ -153,6 +163,7 @@ public class WinCelebrationFx : MonoBehaviour
         // Always open on confetti — unless there are no confetti frames at all,
         // in which case the firework half carries the whole show.
         _showingFirework = _confettiFrames == null || _confettiFrames.Length == 0;
+        ApplyLayout();
         ApplyFrame();
     }
 
@@ -204,6 +215,7 @@ public class WinCelebrationFx : MonoBehaviour
         if (CyclesComplete)
             return;
 
+        ApplyLayout(); // у эффектов разное смещение по вертикали
         ApplyFrame();
     }
 
