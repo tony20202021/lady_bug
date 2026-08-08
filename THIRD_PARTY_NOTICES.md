@@ -50,7 +50,7 @@
 | `IntroClock.wav` | 1063 | Fast wall clock ticking | 2 — Викторина про жизнь |
 | `IntroIndianFlute.wav` | 2312 | Possitive indian flute [sic] | 3 — Медитация в спешке |
 | `IntroStones.wav` | 388 | Falling bricks | 4 — Бесконечный Сизиф |
-| `IntroFactoryHum.wav` | 2133 | Technological futuristic hum | 5 — Завод |
+| `IntroFactoryHum.wav` | **828** | Loud construction machine | 5 — Завод |
 | `IntroSpaceDrone.wav` | 2510 | Cinematic suspense ambience | 6 — Таблетка в космосе |
 
 Слот 1 (БК) использует `Buzz.wav`, слот 7 (Игра про кота) — уже имеющийся
