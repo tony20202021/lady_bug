@@ -32,11 +32,12 @@ public class WinCelebrationFx : MonoBehaviour
 
     // Both bursts sit high in their own frame, so centred on screen they read
     // as floating above the text. Nudged down — the confetti further, since its
-    // sheet has more empty headroom than the firework's.
+    // sheet has more empty headroom than the firework's. Each got a further
+    // 108px (a tenth of the 1080 reference height) on top of the first pass.
     // Firework is the yellow one (single hue, RGB ~255/227/50); confetti is the
     // multicoloured one — checked against the frames, not guessed from the names.
-    [SerializeField] private float fireworkOffsetY = -120f;
-    [SerializeField] private float confettiOffsetY = -260f;
+    [SerializeField] private float fireworkOffsetY = -228f;
+    [SerializeField] private float confettiOffsetY = -368f;
 
     Texture2D[] _confettiFrames;
     Texture2D[] _fireworkFrames;

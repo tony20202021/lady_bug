@@ -60,8 +60,12 @@ public class WinSequence : MonoBehaviour
     // Full-screen dim behind the whole recap. The panels themselves only
     // cover part of the screen and differ in size page to page, so without
     // this the background appeared to darken on some screens and not others.
-    // Goes up once at the start of the cutscene and stays until the scene
-    // reloads — there is no point in the run where an undimmed frame is wanted.
+    //
+    // Goes up NOT at the start of the cutscene but only after the bugs have
+    // flown off (RunSequence, right after EndWinBoost), and stays until the
+    // scene reloads. ФИНИШ, the entity fade-out and the fly-away are all still
+    // "the world" and are meant to be watched undimmed; everything after is UI
+    // over a frozen scene.
     [SerializeField] private GameObject recapDim;
     // Stats pages — a title plus a pool of checkbox rows (CreateWinCheckRow),
     // matching the checklist style already used elsewhere (СУТЬ ИГРЫ, ЦЕЛЬ)
@@ -266,9 +270,7 @@ public class WinSequence : MonoBehaviour
         // First thing shown, before anything else changes — controls go
         // dead the moment this sequence takes over (right below), so the
         // player needs to see why before the world starts fading/flying.
-        if (recapDim != null)
-            recapDim.SetActive(true);
-
+        // Deliberately undimmed: recapDim only comes up after the fly-away.
         if (finishText != null)
         {
             finishText.SetActive(true);
@@ -374,6 +376,13 @@ public class WinSequence : MonoBehaviour
         // back down to a stop instead of racing on forever.
         if (SpeedController.Instance != null)
             SpeedController.Instance.EndWinBoost();
+
+        // Dim goes up only now, once the bugs have flown off. The fly-away is
+        // the last thing that happens in the world itself and is meant to be
+        // watched undimmed; everything from this screen on is UI over a frozen
+        // scene, and that is what wants dimming.
+        if (recapDim != null)
+            recapDim.SetActive(true);
 
         if (_winText != null)
             _winText.text = WinTitlePlain;
@@ -825,23 +834,38 @@ public class WinSequence : MonoBehaviour
     // regardless, not one per category (sitting through a full ~10s
     // capture per qualifying category, up to 4 in a row for a run that
     // sweeps every leaderboard, read as the capture being stuck repeating
-    // instead of finishing). No separate on-screen "NEW RECORD: X — N
-    // МЕСТО" reveal anymore — ИТОГИ ЗАБЕГА's own inline tags already show
-    // that, this just handles the webcam capture (smile + 5s countdown, if
-    // a camera is available — see PlayerPhotoCapture) that used to follow it.
+    // instead of finishing). The capture screen itself lists EVERY category
+    // the run placed in, one line each — showing only the strongest made a run
+    // that took, say, both time and tricks look like it had managed just one.
+    // What was dropped earlier is only the standalone reveal BEAT that used to
+    // precede this; the placements themselves are still shown, here.
     private IEnumerator CaptureRecordPhoto(List<HighScoreManager.NewRecord> records)
     {
         if (PlayerPhotoCapture.Instance == null || records.Count == 0)
             yield break;
 
-        HighScoreManager.NewRecord best = records[0];
-        foreach (var r in records)
-            if (r.Rank < best.Rank)
-                best = r; // headline the strongest placement (rank 1 if any)
+        // Every category the run placed in, not just the strongest. Showing
+        // one line made a run that took, say, both time and tricks look like it
+        // had only managed the one.
+        var ordered = new List<HighScoreManager.NewRecord>(records);
+        // Explicit tiebreak: List.Sort is introsort and NOT stable, and ties are
+        // the common case here (a strong run takes the same place in several
+        // categories). Falling back to CategoryIndex keeps the order matching
+        // ИТОГИ ЗАБЕГА, which lists categories in that fixed order.
+        ordered.Sort((a, b) => a.Rank != b.Rank
+            ? a.Rank.CompareTo(b.Rank)
+            : a.CategoryIndex.CompareTo(b.CategoryIndex));
 
-        string message = best.Rank == 1
-            ? "НОВЫЙ РЕКОРД!\n" + best.CategoryName
-            : best.CategoryName + " — " + best.Rank + " МЕСТО!";
+        var sb = new System.Text.StringBuilder();
+        if (ordered[0].Rank == 1)
+            sb.Append("НОВЫЙ РЕКОРД!");
+        foreach (var r in ordered)
+        {
+            if (sb.Length > 0)
+                sb.Append('\n');
+            sb.Append(r.CategoryName).Append(" — ").Append(r.Rank).Append(" МЕСТО");
+        }
+        string message = sb.ToString();
 
         if (newRecordAnnounceText != null)
         {

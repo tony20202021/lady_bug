@@ -284,7 +284,7 @@ public static class SceneSetup
         messageGo.transform.SetParent(canvasGo.transform, false);
         Text message = messageGo.AddComponent<Text>();
         message.font = GameFont;
-        message.fontSize = 56;
+        message.fontSize = 40; // до 5 строк (заголовок + 4 категории) вместо прежних двух
         message.fontStyle = FontStyle.Bold;
         message.alignment = TextAnchor.MiddleCenter;
         message.color = new Color(1f, 0.85f, 0.2f);
@@ -300,7 +300,17 @@ public static class SceneSetup
         // almost no real gap before SmileText below it. Moved up rather
         // than pushing SmileText down, so as not to crowd CameraPreview's
         // own top edge underneath it any further than before.
-        messageRt.sizeDelta = new Vector2(1400f, 170f);
+        // Раньше сюда влезали ровно 2 строки. Теперь показываются ВСЕ
+        // категории, где забег попал в топ (WinSequence.CaptureRecordPhoto),
+        // то есть до 5 строк — бокс выше, шрифт мельче, и обязательно Overflow:
+        // при Truncate строка, не влезшая в бокс, не обрезается, а выбрасывается
+        // целиком (те же грабли, что у стрелок джойстика).
+        message.horizontalOverflow = HorizontalWrapMode.Wrap;
+        message.verticalOverflow = VerticalWrapMode.Overflow;
+        messageRt.sizeDelta = new Vector2(1400f, 230f);
+        // Центр там же, где был. Коробка занимает 275..505: сверху остаётся
+        // 35px до края канваса (540), снизу 35px до верхнего края
+        // CameraPreview (240) — растить дальше некуда ни в одну сторону.
         messageRt.anchoredPosition = new Vector2(0f, 390f);
 
         var previewGo = new GameObject("CameraPreview");
