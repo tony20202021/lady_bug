@@ -23,6 +23,9 @@ public class LaneWalker : MonoBehaviour
     [SerializeField] private float idleWiggleSpeed = 3f;
     [SerializeField] private float crossingWiggleAngle = 10f;
     [SerializeField] private float crossingWiggleSpeed = 12f;
+    // Chance to turn around instead of standing still when a move is blocked
+    // by the edge of the road — see TryStartMove.
+    [SerializeField] [Range(0f, 1f)] private float idleTurnChance = 0.35f;
 
     private int _lane;
     private float _timer;
@@ -71,6 +74,18 @@ public class LaneWalker : MonoBehaviour
         // sometimes walking backward into a lane.
         _baseSpriteScaleX = Mathf.Abs(_sprite.localScale.x);
         _hasFrameAnimation = GetComponentInChildren<SpriteFrameAnimator>() != null;
+
+        // Facing was only ever set when a move began, so anything that had not
+        // moved yet faced whichever way its source art happened to point —
+        // every dog on the road looking the same way until it first crossed a
+        // lane. Start each one facing at random instead.
+        SetFacing(Random.value < 0.5f ? -1 : 1);
+    }
+
+    private void SetFacing(int direction)
+    {
+        _sprite.localScale = new Vector3(
+            _baseSpriteScaleX * direction, _sprite.localScale.y, _sprite.localScale.z);
     }
 
     private void Update()
@@ -112,13 +127,19 @@ public class LaneWalker : MonoBehaviour
         int targetLane = _lane + direction;
         if (targetLane < 0 || targetLane >= laneCount)
         {
-            ScheduleNext(); // already at that edge lane — try again later
+            // Nowhere to go that way — it is already in the edge lane. Rather
+            // than stand frozen facing the same way for another whole wait,
+            // sometimes just turn on the spot, as if it looked that way and
+            // thought better of it.
+            if (Random.value < idleTurnChance)
+                SetFacing(direction);
+            ScheduleNext();
             return;
         }
 
         _lane = targetLane;
         _moving = true;
-        _sprite.localScale = new Vector3(_baseSpriteScaleX * direction, _sprite.localScale.y, _sprite.localScale.z);
+        SetFacing(direction);
     }
 
     private void ScheduleNext()
