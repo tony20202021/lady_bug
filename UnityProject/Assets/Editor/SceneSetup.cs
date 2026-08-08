@@ -3892,6 +3892,17 @@ public static class SceneSetup
         if (wings.clip == null)
             Debug.LogWarning("LiveBugPreview: Buzz.wav not found — training flight will be silent.");
         so.FindProperty("wingsSource").objectReferenceValue = wings;
+
+        // Бег лапами в приседе — вторая половина той же пары, что и в игре
+        // (PlayerMovementSfx: ноги на земле, крылья в воздухе).
+        AudioSource feet = bugGo.AddComponent<AudioSource>();
+        feet.clip = AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Audio/lady_bug/RunFeet.mp3");
+        feet.loop = true;
+        feet.playOnAwake = false;
+        feet.volume = 0f;
+        if (feet.clip == null)
+            Debug.LogWarning("LiveBugPreview: RunFeet.mp3 not found — training duck will be silent.");
+        so.FindProperty("feetSource").objectReferenceValue = feet;
         so.FindProperty("bugImage").objectReferenceValue = bugImage;
         so.FindProperty("bugNormalTexture").objectReferenceValue = bugTex;
         so.FindProperty("bugAirTexture1").objectReferenceValue = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/lady_bug/" + spriteFile.Replace(".png", "Air1.png"));
