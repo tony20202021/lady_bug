@@ -654,6 +654,11 @@ public class WinSequence : MonoBehaviour
         };
         yield return StartCoroutine(ShowTextStatsPage("ИТОГИ ЗАБЕГА", totalsLines));
 
+        // Аплодисменты только под «ВЫ ПРОШЛИ ДО КОНЦА» и ИТОГИ ЗАБЕГА.
+        // Страницы СОБРАНО/СБИТО/ТРЮКИ ниже — просто сводка, они идут молча;
+        // толпа вернётся на экране фото (CaptureRecordPhoto).
+        StopApplause();
+
         // СОБРАНО/СБИТО: a small icon per unit collected/hit (repeated per
         // count) instead of a per-type text breakdown — see
         // ShowIconStatsPage, which itself collapses to one icon per TYPE
@@ -910,6 +915,8 @@ public class WinSequence : MonoBehaviour
     {
         if (PlayerPhotoCapture.Instance == null || records.Count == 0)
             yield break;
+
+        StartApplause(); // снова, после молчаливых страниц сводки
 
         // Every category the run placed in, not just the strongest. Showing
         // one line made a run that took, say, both time and tricks look like it

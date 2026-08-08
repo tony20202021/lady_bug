@@ -32,7 +32,7 @@
 - `docs/` — документация.
 
 ## Быстрый старт
-Открыть `UnityProject/` в Unity Hub (Unity **6000.0.78f1**), затем
+Открыть `UnityProject/` в Unity Hub (Unity **6000.5.3f1**), затем
 **Tools → Rebuild Scene**. После правок только в `Assets/Scripts/*.cs` —
 Unity подхватывает сама; после `SceneSetup.cs` — повторить Rebuild Scene.
 
