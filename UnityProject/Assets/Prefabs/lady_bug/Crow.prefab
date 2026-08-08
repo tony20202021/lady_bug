@@ -257,6 +257,7 @@ MonoBehaviour:
   idleWiggleSpeed: 3
   crossingWiggleAngle: 10
   crossingWiggleSpeed: 12
+  idleTurnChance: 0.35
 --- !u!65 &5751882376130450546
 BoxCollider:
   m_ObjectHideFlags: 0

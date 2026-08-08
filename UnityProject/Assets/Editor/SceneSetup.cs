@@ -2254,7 +2254,9 @@ public static class SceneSetup
         var statsBackdropGo = new GameObject("StatsBackdrop");
         statsBackdropGo.transform.SetParent(scoreCanvas.transform, false);
         Image statsBackdropImg = statsBackdropGo.AddComponent<Image>();
-        statsBackdropImg.color = new Color(0f, 0f, 0f, 0.22f);
+        // Непрозрачная: при 0.22 сквозь панель просвечивала 3D-сцена и она
+        // читалась серой, а не как окно поверх игры.
+        statsBackdropImg.color = new Color(0.07f, 0.07f, 0.09f, 1f);
         Outline statsBackdropOutline = statsBackdropGo.AddComponent<Outline>();
         statsBackdropOutline.effectColor = Color.gray;
         statsBackdropOutline.effectDistance = new Vector2(4f, -4f);
@@ -2438,7 +2440,7 @@ public static class SceneSetup
         var leaderboardBgGo = new GameObject("Background");
         leaderboardBgGo.transform.SetParent(leaderboardRootRt, false);
         Image leaderboardBg = leaderboardBgGo.AddComponent<Image>();
-        leaderboardBg.color = new Color(0f, 0f, 0f, 0.22f);
+        leaderboardBg.color = new Color(0.07f, 0.07f, 0.09f, 1f); // непрозрачная, см. StatsBackdrop выше
         Outline leaderboardBgOutline = leaderboardBgGo.AddComponent<Outline>();
         leaderboardBgOutline.effectColor = Color.gray;
         leaderboardBgOutline.effectDistance = new Vector2(4f, -4f);
